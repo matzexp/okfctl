@@ -1,5 +1,26 @@
 schema: spec-driven
 
+context: |
+  okfctl — lifecycle tooling for Open Knowledge Format (OKF) v0.2 bundles.
+  Node >= 20.19, TypeScript ESM run through `node --experimental-strip-types`;
+  commander for the CLI, `yaml` for round-trip frontmatter edits. `npm test`
+  runs `node --test` over test/*.test.ts against a fixture bundle.
+
+  src/core/ holds the model (bundle, concept, lifecycle, check, refs, log);
+  src/commands/ holds one file per CLI verb. Capabilities in openspec/specs/
+  map to those verbs, plus bundle-model for the shared loading and derived
+  signals underneath them.
+
+  Hard constraint: SPEC 11 defines conformance as exactly three rules and
+  forbids rejecting a bundle for unknown types, unknown keys, broken links, or
+  a missing index.md. Anything beyond those three rules is a warning, never an
+  error, and any gating beyond them is opt-in behind a flag. Proposals that
+  add an error tier need to justify themselves against that section.
+
+  Cite the spec section (e.g. SPEC 5.2) in requirements and code comments when
+  behavior derives from it, and say plainly when it does not — `drifted` is
+  ours, not the spec's.
+
 # Project context (optional)
 # This is shown to AI when creating artifacts.
 # Add your tech stack, conventions, style guides, domain knowledge, etc.
