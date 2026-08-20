@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Bundle } from './bundle.ts';
 import type { Concept } from './concept.ts';
 import { STATUSES, isDrifted, isStale, verifiedEvents } from './lifecycle.ts';
+import { checkRefs } from './refs.ts';
 
 export type Level = 'error' | 'warn';
 
@@ -80,6 +81,8 @@ export function checkConcept(concept: Concept): Diagnostic[] {
       }
     }
   }
+
+  found.push(...checkRefs(concept));
 
   if (isStale(concept.data)) {
     warn('stale', `past stale_after (${String(concept.data.stale_after)}) (SPEC §5.5)`);

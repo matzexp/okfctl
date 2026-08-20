@@ -8,6 +8,7 @@ import { loadBundle, findConcept } from '../src/core/bundle.ts';
 import { checkBundle, countBy } from '../src/core/check.ts';
 import { runPromote, runDeprecate } from '../src/commands/transition.ts';
 import { runIndex } from '../src/commands/index-gen.ts';
+import { runRefs } from '../src/commands/refs.ts';
 import { conceptStatus, trustTier } from '../src/core/lifecycle.ts';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/bundle', import.meta.url));
@@ -132,4 +133,20 @@ test('index omits deprecated concepts unless asked for them', () => {
 
   quietly(() => runIndex({ bundle: dir, includeDeprecated: true }));
   assert.match(readFileSync(join(dir, 'metrics/index.md'), 'utf8'), /Gross margin/);
+});
+
+test('refs is advisory by default and gating only under --strict', () => {
+  assert.equal(quietly(() => runRefs({ bundle: FIXTURE })), 0);
+  assert.equal(quietly(() => runRefs({ bundle: FIXTURE, strict: true })), 1);
+});
+
+test('check surfaces broken citations as warnings, never as errors', () => {
+  const diagnostics = checkBundle(loadBundle(FIXTURE));
+  const refs = diagnostics.filter((entry) => entry.rule.startsWith('footnote-'));
+  assert.deepEqual(
+    refs.map((entry) => `${entry.where} ${entry.rule}`).sort(),
+    ['metrics/margin.md footnote-unjoined', 'metrics/revenue.md footnote-undefined'],
+  );
+  assert.equal(refs.every((entry) => entry.level === 'warn'), true);
+  assert.equal(countBy(diagnostics, 'error'), 1);
 });

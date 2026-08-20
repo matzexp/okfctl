@@ -11,4 +11,6 @@ stale_after: 2026-12-31
 
 # Definition
 
-Revenue and gross profit for a fiscal year.
+Revenue and gross profit for a fiscal year.[^note]
+
+[^note]: Excludes discontinued operations.

@@ -61,6 +61,7 @@ don't do that.
 | `okfctl promote <concept>` | The draft→stable transition: record verification, flip status, set freshness, log it. |
 | `okfctl deprecate <concept>` | The stable→deprecated transition, logged the same way. |
 | `okfctl index` | Regenerate `index.md` from frontmatter (§8). `--check` for CI. |
+| `okfctl refs` | Footnote ↔ `sources[].id` join integrity. `--strict` for CI. |
 
 ### Derived signals
 
@@ -76,6 +77,29 @@ Nothing below is stored. Each is computed on read, exactly as the spec intends.
 
 **Drifted** (ours): latest `verified.at` is older than `generated.at`. The definition changed
 after someone last confirmed it, so the trust tier is nominally intact but no longer earned.
+
+### `refs` in detail
+
+OKF cites evidence by joining a Markdown footnote label in the body to an `id` in
+`sources[]` (§5.1). Nothing in the format holds that join together — body and frontmatter
+are edited independently, so a rename on one side leaves a citation pointing at nothing.
+`refs` reads the join in both directions and classifies every label:
+
+| State | Meaning |
+|---|---|
+| `joined` | The footnote resolves to a `sources[]` entry. |
+| `unjoined` | A defined footnote with no `sources[].id` to match. The rename case. |
+| `undefined` | `[^label]` used in the body with no `[^label]:` definition anywhere. |
+| `uncited` | A `sources[].id` no footnote references. |
+| `plain` | A footnote in a document that declares no `sources[]` at all. |
+
+`unjoined` and `undefined` are breakage, and `check` reports them as warnings.
+`uncited` and `plain` are not: a source may back a concept without being footnoted, and a
+document with no `sources[]` is using footnotes as plain Markdown. Treating either as a
+defect would invent a rule §5.1 does not state, so `refs` reports them and `check` does not.
+
+Code fences and inline code spans are excluded before scanning, so a `[^` inside a SQL
+block is not mistaken for a citation.
 
 ### `promote` in detail
 
@@ -112,6 +136,8 @@ okfctl status --json             # machine-readable
 okfctl promote <id> --by human:me
 okfctl deprecate <id> --by human:me --reason "superseded by /metrics/revenue-v2"
 okfctl index --check             # CI: fail when index.md has drifted
+okfctl refs                      # footnote to sources[].id join, both directions
+okfctl refs --broken --strict    # CI: fail on unresolved citations
 ```
 
 All commands take an optional bundle path (default `.`) via `--bundle <dir>`.
@@ -120,13 +146,12 @@ All commands take an optional bundle path (default `.`) via `--bundle <dir>`.
 
 the development bundle is a real bundle converted from a homelab GitOps repository — its ADRs,
 repo-root guides, and operational notes — plus the agent-skill repository used to operate it.
-49 concepts, 104 resolving cross-links, with genuinely deprecated, draft, stale, and drifted
-states to run the commands against. See its README.
+49 concepts, 104 resolving cross-links, and 11 resolving footnote citations, with genuinely
+deprecated, draft, stale, and drifted states to run the commands against. See its README.
 
 ## Status
 
-Early. `check`, `status`, `promote`, `deprecate`, and `index` are the first slice.
-Footnote↔`sources[].id` join integrity (`okfctl refs`) and `/okf:*` agent slash commands
-are next.
+Early. `check`, `status`, `promote`, `deprecate`, `index`, and `refs` are the first slice.
+`/okf:*` agent slash commands are next.
 
 Targets OKF **v0.2**.

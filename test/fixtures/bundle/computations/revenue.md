@@ -21,4 +21,8 @@ sources:
 
 # Computation
 
+Recognition follows Finance's written policy.[^rev-policy]
+
     SELECT SUM(amount) AS revenue FROM finance.recognized_revenue WHERE fiscal_year = @year
+
+[^rev-policy]: Revenue recognition policy

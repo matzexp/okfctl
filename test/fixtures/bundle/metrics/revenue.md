@@ -9,4 +9,4 @@ custom_producer_key: keep-me
 
 # Definition
 
-Recognized revenue sums `amount` over rows booked to the fiscal year.
+Recognized revenue sums `amount` over rows booked to the fiscal year.[^ghost]

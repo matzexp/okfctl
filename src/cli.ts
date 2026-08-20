@@ -4,6 +4,7 @@ import { runCheck } from './commands/check.ts';
 import { runStatus } from './commands/status.ts';
 import { runPromote, runDeprecate } from './commands/transition.ts';
 import { runIndex } from './commands/index-gen.ts';
+import { runRefs } from './commands/refs.ts';
 import { red } from './core/term.ts';
 
 const program = new Command();
@@ -62,6 +63,16 @@ program
   .option('-n, --dry-run', 'show the transition without writing')
   .action(function (this: Command, concept: string, options) {
     exit(runDeprecate(concept, { bundle: bundleDir(this), ...options, noLog: options.log === false }));
+  });
+
+program
+  .command('refs')
+  .description('footnote to sources[].id join integrity (SPEC 5.1)')
+  .option('--broken', 'only concepts with an unresolved citation')
+  .option('--strict', 'exit non-zero when a citation is broken (opt-in; not spec conformance)')
+  .option('--json', 'machine-readable output')
+  .action(function (this: Command, options) {
+    exit(runRefs({ bundle: bundleDir(this), ...options }));
   });
 
 program
