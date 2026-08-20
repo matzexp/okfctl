@@ -1,0 +1,113 @@
+import { readFileSync } from 'node:fs';
+import { parseDocument, Document, YAMLMap, YAMLSeq, isMap, isSeq } from 'yaml';
+
+/** A single OKF concept document (SPEC §4). */
+export interface Concept {
+  /** Absolute path on disk. */
+  file: string;
+  /** Bundle-relative path with the `.md` suffix removed (SPEC §2). */
+  id: string;
+  /** Editable YAML document, or null when the file has no frontmatter block. */
+  doc: Document.Parsed | null;
+  /** Plain-JS view of the frontmatter. Empty when `doc` is null. */
+  data: Record<string, unknown>;
+  /** Everything after the frontmatter block. */
+  body: string;
+  /** True when the delimiters were present but the YAML failed to parse. */
+  parseError: string | null;
+}
+
+const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n([\s\S]*))?$/;
+
+export function parseConcept(file: string, id: string, raw: string): Concept {
+  const match = FRONTMATTER.exec(raw);
+  if (!match) {
+    return { file, id, doc: null, data: {}, body: raw, parseError: null };
+  }
+
+  const [, yamlText, body = ''] = match;
+  const doc = parseDocument(yamlText, { keepSourceTokens: true });
+  const fatal = doc.errors[0];
+  if (fatal) {
+    return { file, id, doc: null, data: {}, body, parseError: fatal.message };
+  }
+
+  const data = (doc.toJS() ?? {}) as Record<string, unknown>;
+  return { file, id, doc, data, body, parseError: null };
+}
+
+export function readConcept(file: string, id: string): Concept {
+  return parseConcept(file, id, readFileSync(file, 'utf8'));
+}
+
+/**
+ * Render a concept back to disk form. Frontmatter goes through the YAML
+ * document model rather than a re-serialized JS object, so key order,
+ * comments, and producer-defined keys we do not understand all survive
+ * the round trip (SPEC §4.1).
+ */
+export function serializeConcept(concept: Concept): string {
+  if (!concept.doc) return concept.body;
+  const yamlText = tightenFlowSeqs(concept.doc.toString({ lineWidth: 0 })).replace(/\n+$/, '');
+  return `---\n${yamlText}\n---\n${concept.body}`;
+}
+
+/**
+ * The YAML writer pads every flow collection, but OKF's own examples pad flow
+ * mappings (`{ by: x, at: y }`) and leave flow sequences tight (`tags: [a, b]`).
+ * Matching both keeps `promote` from churning lines it never touched. Only
+ * sequences of plain scalars are tightened; anything holding a nested
+ * collection is left exactly as the writer produced it.
+ */
+function tightenFlowSeqs(yamlText: string): string {
+  return yamlText.replace(/\[ ([^[\]{}]*?) \]/g, '[$1]');
+}
+
+/** Display name for a concept: `title`, else the filename stem (SPEC §4.1). */
+export function conceptTitle(concept: Concept): string {
+  const title = concept.data.title;
+  if (typeof title === 'string' && title.trim()) return title.trim();
+  return concept.id.split('/').pop() ?? concept.id;
+}
+
+/** Set a top-level frontmatter key, preserving surrounding structure. */
+export function setField(concept: Concept, key: string, value: unknown): void {
+  if (!concept.doc) throw new Error(`${concept.id}: no frontmatter to edit`);
+  concept.doc.set(key, value);
+  concept.data[key] = value;
+}
+
+/**
+ * Append a `{ by, at }` entry to a list-valued frontmatter field, coercing a
+ * bare mapping into a one-element sequence first. SPEC §5.2 permits a single
+ * `verified` entry to be written without the list dash, so any writer has to
+ * handle both shapes.
+ */
+export function appendEvent(
+  concept: Concept,
+  key: string,
+  event: { by: string; at: string },
+): void {
+  const doc = concept.doc;
+  if (!doc) throw new Error(`${concept.id}: no frontmatter to edit`);
+
+  const entry = doc.createNode(event) as YAMLMap;
+  entry.flow = true;
+
+  const existing = doc.get(key, true);
+
+  if (isSeq(existing)) {
+    (existing as YAMLSeq).add(entry);
+  } else if (isMap(existing)) {
+    const seq = doc.createNode([]) as YAMLSeq;
+    seq.add(existing);
+    seq.add(entry);
+    doc.set(key, seq);
+  } else {
+    const seq = doc.createNode([]) as YAMLSeq;
+    seq.add(entry);
+    doc.set(key, seq);
+  }
+
+  concept.data = (doc.toJS() ?? {}) as Record<string, unknown>;
+}

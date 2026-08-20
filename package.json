@@ -1,0 +1,28 @@
+{
+  "name": "okfctl",
+  "version": "0.1.0",
+  "description": "Lifecycle tooling for Open Knowledge Format (OKF) v0.2 bundles — health reporting, draft→stable promotion, index regeneration.",
+  "type": "module",
+  "bin": {
+    "okfctl": "dist/cli.js",
+    "okf": "dist/cli.js"
+  },
+  "files": ["dist"],
+  "engines": { "node": ">=20.19.0" },
+  "scripts": {
+    "build": "tsc",
+    "dev": "node --experimental-strip-types src/cli.ts",
+    "test": "node --test --experimental-strip-types test/*.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["okf", "open-knowledge-format", "knowledge", "agents", "lifecycle"],
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^13.1.0",
+    "yaml": "^2.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "typescript": "^5.7.3"
+  }
+}
