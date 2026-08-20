@@ -120,7 +120,7 @@ All commands take an optional bundle path (default `.`) via `--bundle <dir>`.
 
 the development bundle is a real bundle converted from a homelab GitOps repository — its ADRs,
 repo-root guides, and operational notes — plus the agent-skill repository used to operate it.
-49 concepts, 101 resolving cross-links, with genuinely deprecated, draft, stale, and drifted
+49 concepts, 104 resolving cross-links, with genuinely deprecated, draft, stale, and drifted
 states to run the commands against. See its README.
 
 ## Status
