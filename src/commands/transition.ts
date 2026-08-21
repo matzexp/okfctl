@@ -32,7 +32,7 @@ export function runPromote(ref: string, options: PromoteOptions): number {
   const bundle = loadBundle(options.bundle);
   const concept = findConcept(bundle, ref);
 
-  const blocking = checkConcept(concept).filter((entry) => entry.level === 'error');
+  const blocking = checkConcept(concept, { root: bundle.root }).filter((entry) => entry.level === 'error');
   if (blocking.length > 0 && !options.force) {
     console.error(red(`refusing to promote ${concept.id}: conformance errors`));
     for (const entry of blocking) console.error(`  ${entry.message} ${dim('[' + entry.rule + ']')}`);

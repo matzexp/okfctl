@@ -17,7 +17,8 @@ A bundle rots in specific, mechanically detectable ways:
   confirmation. The spec implies this defect but never names it. We call it **drifted**.
 - `index.md` falls out of sync with the concepts it lists, because it is derived data
   maintained by hand.
-- Footnote labels break their join to `sources[].id` the moment an agent rewrites a document.
+- Footnote labels break their join to `sources[].id`, and cross-links break their join to
+  the files they point at, the moment an agent renames or rewrites a document.
 
 None of that is visible without tooling, and all of it is fixable with it.
 
@@ -61,7 +62,7 @@ don't do that.
 | `okfctl promote <concept>` | The draft→stable transition: record verification, flip status, set freshness, log it. |
 | `okfctl deprecate <concept>` | The stable→deprecated transition, logged the same way. |
 | `okfctl index` | Regenerate `index.md` from frontmatter (§8). `--check` for CI. |
-| `okfctl refs` | Footnote ↔ `sources[].id` join integrity. `--strict` for CI. |
+| `okfctl refs` | Reference integrity: footnote ↔ `sources[].id`, and internal links. `--strict` for CI. |
 
 ### Derived signals
 
@@ -80,10 +81,15 @@ after someone last confirmed it, so the trust tier is nominally intact but no lo
 
 ### `refs` in detail
 
-OKF cites evidence by joining a Markdown footnote label in the body to an `id` in
-`sources[]` (§5.1). Nothing in the format holds that join together — body and frontmatter
-are edited independently, so a rename on one side leaves a citation pointing at nothing.
-`refs` reads the join in both directions and classifies every label:
+A bundle has two kinds of reference, and neither is held together by anything: **citations**
+join a Markdown footnote label to an `id` in `sources[]` (§5.1), and **links** point from one
+file to another. Body, frontmatter, and filenames are all edited independently, so a rename
+on any side leaves a reference pointing at nothing. `refs` reads both and reports them
+together — it is one question, so it is one command and one CI step.
+
+#### Citations
+
+The footnote ↔ `sources[].id` join, read in both directions:
 
 | State | Meaning |
 |---|---|
@@ -98,8 +104,36 @@ are edited independently, so a rename on one side leaves a citation pointing at 
 document with no `sources[]` is using footnotes as plain Markdown. Treating either as a
 defect would invent a rule §5.1 does not state, so `refs` reports them and `check` does not.
 
-Code fences and inline code spans are excluded before scanning, so a `[^` inside a SQL
-block is not mistaken for a citation.
+#### Links
+
+Internal Markdown links are resolved against the bundle's own contents — no network, no
+git:
+
+| State | Meaning |
+|---|---|
+| `resolved` | Something exists in the bundle at that path. |
+| `unresolved` | Nothing does, or the path escapes the bundle root. |
+| `anchor-missing` | The file exists but no heading matches the `#fragment`. Only with `--anchors`. |
+
+Root-absolute (`/guides/x.md`), relative (`../decisions/y.md`), and bare-fragment
+(`#section`) forms are all read; a bare fragment addresses the document it sits in.
+`http:`, `https:`, and `mailto:` targets are out of scope — verifying those is a network
+check, not a bundle check.
+
+Directories (`guides/`) and reserved files (`index.md`, `log.md`) count as valid targets,
+because `okfctl index` generates `* [guides](guides/)` itself and the tool should not flag
+its own output. Links are read from concepts; `index.md` and `log.md` are not scanned.
+
+`unresolved` is reported by `check` as a warning. `anchor-missing` never is: matching a
+fragment to a heading needs a slug algorithm OKF does not define, so a mismatch may be this
+tool's rule disagreeing with your renderer rather than a defect in your bundle. That check
+is opt-in via `--anchors`.
+
+**`--strict` implies `--anchors`.** It widens what is checked, not just the exit code — a
+caller gating CI has asked for the stricter reading.
+
+Code fences and inline code spans are excluded before scanning, so neither a `[^` inside a
+SQL block nor a link in a shell sample is mistaken for a reference.
 
 ### `promote` in detail
 
@@ -136,8 +170,9 @@ okfctl status --json             # machine-readable
 okfctl promote <id> --by human:me
 okfctl deprecate <id> --by human:me --reason "superseded by /metrics/revenue-v2"
 okfctl index --check             # CI: fail when index.md has drifted
-okfctl refs                      # footnote to sources[].id join, both directions
-okfctl refs --broken --strict    # CI: fail on unresolved citations
+okfctl refs                      # citations and links, both directions
+okfctl refs --anchors            # also verify #fragments against target headings
+okfctl refs --broken --strict    # CI: fail on any broken reference (implies --anchors)
 ```
 
 All commands take an optional bundle path (default `.`) via `--bundle <dir>`.
@@ -146,8 +181,9 @@ All commands take an optional bundle path (default `.`) via `--bundle <dir>`.
 
 the development bundle is a real bundle converted from a homelab GitOps repository — its ADRs,
 repo-root guides, and operational notes — plus the agent-skill repository used to operate it.
-49 concepts, 104 resolving cross-links, and 11 resolving footnote citations, with genuinely
-deprecated, draft, stale, and drifted states to run the commands against. See its README.
+49 concepts, with 101 internal links and 11 footnote citations that all resolve — verified
+by `okfctl refs`, not counted by hand — plus genuinely deprecated, draft, stale, and
+drifted states to run the commands against. See its README.
 
 ## Status
 

@@ -67,9 +67,10 @@ program
 
 program
   .command('refs')
-  .description('footnote to sources[].id join integrity (SPEC 5.1)')
-  .option('--broken', 'only concepts with an unresolved citation')
-  .option('--strict', 'exit non-zero when a citation is broken (opt-in; not spec conformance)')
+  .description('reference integrity: footnote to sources[].id, and internal links')
+  .option('--broken', 'only concepts with an unresolved reference')
+  .option('--anchors', 'also verify #fragments against the target document headings')
+  .option('--strict', 'exit non-zero on a broken reference, and imply --anchors (opt-in; not spec conformance)')
   .option('--json', 'machine-readable output')
   .action(function (this: Command, options) {
     exit(runRefs({ bundle: bundleDir(this), ...options }));

@@ -150,3 +150,26 @@ test('check surfaces broken citations as warnings, never as errors', () => {
   assert.equal(refs.every((entry) => entry.level === 'warn'), true);
   assert.equal(countBy(diagnostics, 'error'), 1);
 });
+
+test('refs gates on broken links under --strict, and anchors come with it', () => {
+  assert.equal(quietly(() => runRefs({ bundle: FIXTURE })), 0);
+  assert.equal(quietly(() => runRefs({ bundle: FIXTURE, strict: true })), 1);
+  // --anchors alone widens what is checked without gating.
+  assert.equal(quietly(() => runRefs({ bundle: FIXTURE, anchors: true })), 0);
+});
+
+test('check reports an unresolved link as a warning, leaving the bundle conformant', () => {
+  const diagnostics = checkBundle(loadBundle(FIXTURE));
+  const links = diagnostics.filter((entry) => entry.rule === 'link-unresolved');
+
+  assert.deepEqual(links.map((entry) => entry.where), ['metrics/income-statement.md']);
+  assert.match(links[0].message, /\/metrics\/cogs\.md/);
+  assert.equal(links[0].level, 'warn');
+  // The one error is the fixture's missing `type`, not anything link-related.
+  assert.equal(countBy(diagnostics, 'error'), 1);
+});
+
+test('check never reports a missing anchor, however strict the caller is', () => {
+  const diagnostics = checkBundle(loadBundle(FIXTURE));
+  assert.equal(diagnostics.some((entry) => entry.rule.includes('anchor')), false);
+});

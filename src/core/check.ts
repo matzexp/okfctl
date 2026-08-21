@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { Bundle } from './bundle.ts';
 import type { Concept } from './concept.ts';
 import { STATUSES, isDrifted, isStale, verifiedEvents } from './lifecycle.ts';
-import { checkRefs } from './refs.ts';
+import { checkRefs, type RefsContext } from './refs.ts';
 
 export type Level = 'error' | 'warn';
 
@@ -22,7 +22,7 @@ export interface Diagnostic {
  * missing index.md. Everything beyond those three rules is therefore a
  * warning, never an error.
  */
-export function checkConcept(concept: Concept): Diagnostic[] {
+export function checkConcept(concept: Concept, context: RefsContext = {}): Diagnostic[] {
   const found: Diagnostic[] = [];
   const where = `${concept.id}.md`;
   const error = (rule: string, message: string) =>
@@ -82,7 +82,7 @@ export function checkConcept(concept: Concept): Diagnostic[] {
     }
   }
 
-  found.push(...checkRefs(concept));
+  found.push(...checkRefs(concept, context));
 
   if (isStale(concept.data)) {
     warn('stale', `past stale_after (${String(concept.data.stale_after)}) (SPEC §5.5)`);
@@ -144,7 +144,7 @@ export function checkReserved(bundle: Bundle): Diagnostic[] {
 
 export function checkBundle(bundle: Bundle): Diagnostic[] {
   return [
-    ...bundle.concepts.flatMap(checkConcept),
+    ...bundle.concepts.flatMap((concept) => checkConcept(concept, { root: bundle.root })),
     ...checkReserved(bundle),
   ];
 }

@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import type { Concept } from './concept.ts';
 import type { Diagnostic } from './check.ts';
 
@@ -43,6 +45,27 @@ export interface Join {
   source: Source | null;
 }
 
+export type LinkState =
+  /** The target exists inside the bundle (and its anchor matched, when checked). */
+  | 'resolved'
+  /** No such file or directory inside the bundle. */
+  | 'unresolved'
+  /** The file exists but no heading matched the `#fragment`. Only ever produced
+   *  when anchor checking is switched on. */
+  | 'anchor-missing';
+
+export interface Link {
+  /** The target exactly as written, reported verbatim so a user can grep for it. */
+  target: string;
+  /** The path part, with any `#fragment` removed. Empty for a bare fragment. */
+  path: string;
+  /** The `#fragment`, without the `#`. Null when the link carries none. */
+  fragment: string | null;
+  /** Bundle-relative path the link resolves to, or null when it resolves to nothing. */
+  resolvesTo: string | null;
+  state: LinkState;
+}
+
 export interface ConceptRefs {
   id: string;
   where: string;
@@ -51,6 +74,15 @@ export interface ConceptRefs {
   joins: Join[];
   /** Labels used in the body that no `[^label]:` line defines. */
   undefined: string[];
+  /** Internal links found in the body. Empty unless a bundle root was supplied. */
+  links: Link[];
+}
+
+export interface RefsContext {
+  /** Absolute bundle root. Without it, links cannot be resolved and are not read. */
+  root?: string;
+  /** Verify `#fragment` against the target's headings. Off unless asked for. */
+  anchors?: boolean;
 }
 
 /** Fenced code and inline code spans are prose to Markdown, not citations. */
@@ -110,7 +142,106 @@ export function readSources(data: Record<string, unknown>): Source[] {
   });
 }
 
-export function conceptRefs(concept: Concept): ConceptRefs {
+/** Schemes that address the network rather than the bundle. */
+const EXTERNAL = /^[a-z][a-z0-9+.-]*:/i;
+
+/** `[text](target)` and `![alt](target)`, with an optional "title" after the target. */
+const LINK = /!?\[[^\]]*\]\(\s*([^)\s]*)(?:\s+"[^"]*")?\s*\)/g;
+
+/**
+ * Collect the links in a body that address something inside the bundle. External
+ * schemes are dropped: confirming those is a network check, not a bundle check.
+ */
+export function readLinks(body: string): { target: string; path: string; fragment: string | null }[] {
+  const found: { target: string; path: string; fragment: string | null }[] = [];
+  for (const match of stripCode(body).matchAll(LINK)) {
+    const target = match[1];
+    if (!target || EXTERNAL.test(target)) continue;
+    const hash = target.indexOf('#');
+    const path = hash === -1 ? target : target.slice(0, hash);
+    const fragment = hash === -1 ? null : target.slice(hash + 1);
+    found.push({ target, path, fragment: fragment || null });
+  }
+  return found;
+}
+
+/**
+ * GitHub-style heading slug: lowercase, drop anything that is not alphanumeric,
+ * space, or hyphen, then whitespace to hyphens, trimming the ends. Runs of
+ * whitespace collapse to a single hyphen, which GitHub does not do — the lenient
+ * reading is deliberate, since a false "anchor missing" is the failure mode worth
+ * avoiding here. OKF names no algorithm at all, which is why anchor checking stays
+ * opt-in: a mismatch may be this rule disagreeing with the reader's renderer
+ * rather than a defect in the bundle.
+ */
+export function slugify(heading: string): string {
+  return heading
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function headingSlugs(body: string): Set<string> {
+  const slugs = new Set<string>();
+  for (const match of stripCode(body).matchAll(/^#{1,6}\s+(.+?)\s*#*$/gm)) {
+    slugs.add(slugify(match[1]));
+  }
+  return slugs;
+}
+
+/**
+ * Resolve one link against the bundle. Directories and reserved files count as
+ * valid targets: `okfctl index` generates `[guides](guides/)` itself, so excluding
+ * them would have the tool flag its own output.
+ */
+function resolveLink(
+  raw: { target: string; path: string; fragment: string | null },
+  concept: Concept,
+  context: RefsContext,
+): Link {
+  const root = context.root!;
+  const link: Link = { ...raw, resolvesTo: null, state: 'unresolved' };
+
+  // A bare `#fragment` addresses the document it sits in.
+  const file = raw.path === ''
+    ? concept.file
+    : raw.path.startsWith('/')
+      ? join(root, raw.path.slice(1))
+      : resolve(concept.file, '..', raw.path);
+
+  const within = relative(root, file);
+  if (within.startsWith('..') || isAbsolute(within)) return link;
+  if (!existsSync(file)) return link;
+
+  link.resolvesTo = normalize(within).split(/[\\/]/).join('/');
+  link.state = 'resolved';
+
+  if (!context.anchors || !raw.fragment) return link;
+
+  // A directory has no headings to match against; a fragment on one is unverifiable.
+  // A self-link uses the body in hand rather than re-reading it, so a caller holding
+  // an edited concept sees results consistent with what it is holding.
+  const body = file === concept.file ? concept.body : readBody(file);
+  if (body === null) return link;
+  if (!headingSlugs(body).has(raw.fragment.toLowerCase())) link.state = 'anchor-missing';
+  return link;
+}
+
+/** The body of a target document, frontmatter stripped. Null for anything unreadable. */
+function readBody(file: string): string | null {
+  try {
+    if (statSync(file).isDirectory()) return null;
+    const raw = readFileSync(file, 'utf8');
+    const match = /^---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?([\s\S]*)$/.exec(raw);
+    return match ? match[1] : raw;
+  } catch {
+    return null;
+  }
+}
+
+export function conceptRefs(concept: Concept, context: RefsContext = {}): ConceptRefs {
   const { footnotes, undefined: missing } = readFootnotes(concept.body);
   const sources = readSources(concept.data);
   const byId = new Map<string, Source>();
@@ -132,6 +263,10 @@ export function conceptRefs(concept: Concept): ConceptRefs {
     }
   }
 
+  const links = context.root
+    ? readLinks(concept.body).map((raw) => resolveLink(raw, concept, context))
+    : [];
+
   return {
     id: concept.id,
     where: `${concept.id}.md`,
@@ -139,6 +274,7 @@ export function conceptRefs(concept: Concept): ConceptRefs {
     sources,
     joins,
     undefined: missing,
+    links,
   };
 }
 
@@ -148,14 +284,23 @@ export function conceptRefs(concept: Concept): ConceptRefs {
  * entry is normal — a source can back a concept without being footnoted —
  * so it stays in `refs` output and out of the advisory tier.
  */
-export function checkRefs(concept: Concept): Diagnostic[] {
-  const refs = conceptRefs(concept);
+export function checkRefs(concept: Concept, context: RefsContext = {}): Diagnostic[] {
+  // Anchor verification never reaches `check`: it rests on a slug rule the format
+  // does not define, so the default output never accuses a bundle of a defect the
+  // tool cannot be sure about.
+  const refs = conceptRefs(concept, { root: context.root, anchors: false });
   const found: Diagnostic[] = [];
   const warn = (rule: string, message: string) =>
     found.push({ level: 'warn', where: refs.where, rule, message });
 
   for (const label of refs.undefined) {
     warn('footnote-undefined', `[^${label}] is used but never defined in this document`);
+  }
+
+  for (const link of refs.links) {
+    if (link.state === 'unresolved') {
+      warn('link-unresolved', `[](${link.target}) points at nothing in this bundle (SPEC §11 keeps this advisory)`);
+    }
   }
 
   const duplicates = new Map<string, number>();

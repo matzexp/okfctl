@@ -1,22 +1,30 @@
 import { loadBundle } from '../core/bundle.ts';
-import { conceptRefs, type ConceptRefs, type Join } from '../core/refs.ts';
+import { conceptRefs, type ConceptRefs, type Join, type Link } from '../core/refs.ts';
 import { bold, cyan, dim, green, red, table, yellow } from '../core/term.ts';
 
 export interface RefsOptions {
   bundle: string;
   broken?: boolean;
   strict?: boolean;
+  anchors?: boolean;
   json?: boolean;
 }
 
 /**
- * Report the footnote to `sources[].id` join across a bundle. Broken joins are
- * advisory by default — SPEC §11 forbids failing a bundle over links — so the
- * non-zero exit is behind `--strict`, for callers that want it in CI.
+ * Report both reference joins across a bundle: footnote to `sources[].id`, and
+ * internal link to bundle file. Broken references are advisory by default — SPEC
+ * §11 forbids failing a bundle over links — so the non-zero exit is behind
+ * `--strict`, for callers that want it in CI.
+ *
+ * `--strict` also switches anchor verification on. It widens what is checked, not
+ * only the exit code: a caller gating CI has asked for the stricter reading.
  */
 export function runRefs(options: RefsOptions): number {
   const bundle = loadBundle(options.bundle);
-  const reports = bundle.concepts.map(conceptRefs);
+  const anchors = options.anchors === true || options.strict === true;
+  const reports = bundle.concepts.map((concept) =>
+    conceptRefs(concept, { root: bundle.root, anchors }),
+  );
 
   const counts = {
     joined: 0,
@@ -24,12 +32,17 @@ export function runRefs(options: RefsOptions): number {
     uncited: 0,
     plain: 0,
     undefined: 0,
+    resolved: 0,
+    unresolved: 0,
+    'anchor-missing': 0,
   };
   for (const report of reports) {
     for (const join of report.joins) counts[join.state] += 1;
+    for (const link of report.links) counts[link.state] += 1;
     counts.undefined += report.undefined.length;
   }
-  const broken = counts.unjoined + counts.undefined;
+  const broken =
+    counts.unjoined + counts.undefined + counts.unresolved + counts['anchor-missing'];
 
   if (options.json) {
     console.log(JSON.stringify({ root: bundle.root, counts, concepts: reports }, null, 2));
@@ -48,15 +61,31 @@ export function runRefs(options: RefsOptions): number {
   }
 
   if (shown.length === 0) {
-    console.log(dim(options.broken ? 'No broken citations.' : 'No footnote citations in this bundle.'));
+    console.log(dim(options.broken ? 'No broken references.' : 'No citations or links in this bundle.'));
   }
 
-  const summary = [
+  const citations = [
     counts.joined > 0 ? green(`${counts.joined} joined`) : dim('0 joined'),
-    broken > 0 ? red(`${broken} broken`) : green('0 broken'),
-    counts.uncited > 0 ? yellow(`${counts.uncited} uncited source${counts.uncited === 1 ? '' : 's'}`) : dim('0 uncited sources'),
+    counts.unjoined + counts.undefined > 0
+      ? red(`${counts.unjoined + counts.undefined} broken`)
+      : green('0 broken'),
+    counts.uncited > 0
+      ? yellow(`${counts.uncited} uncited source${counts.uncited === 1 ? '' : 's'}`)
+      : dim('0 uncited sources'),
   ];
-  console.log(summary.join('  |  '));
+  const links = [
+    counts.resolved > 0 ? green(`${counts.resolved} resolved`) : dim('0 resolved'),
+    counts.unresolved > 0 ? red(`${counts.unresolved} unresolved`) : green('0 unresolved'),
+    anchors
+      ? counts['anchor-missing'] > 0
+        ? red(`${counts['anchor-missing']} missing anchor${counts['anchor-missing'] === 1 ? '' : 's'}`)
+        : green('0 missing anchors')
+      : dim('anchors unchecked'),
+  ];
+  console.log(table([
+    [dim('citations'), citations.join('  |  ')],
+    [dim('links'), links.join('  |  ')],
+  ]));
 
   return exitCode(broken, options);
 }
@@ -66,11 +95,19 @@ function exitCode(broken: number, options: RefsOptions): number {
 }
 
 function hasRefs(report: ConceptRefs): boolean {
-  return report.footnotes.length > 0 || report.sources.length > 0;
+  return report.footnotes.length > 0 || report.sources.length > 0 || report.links.length > 0;
+}
+
+function isBrokenLink(link: Link): boolean {
+  return link.state === 'unresolved' || link.state === 'anchor-missing';
 }
 
 function isBroken(report: ConceptRefs): boolean {
-  return report.undefined.length > 0 || report.joins.some((join) => join.state === 'unjoined');
+  return (
+    report.undefined.length > 0 ||
+    report.joins.some((join) => join.state === 'unjoined') ||
+    report.links.some(isBrokenLink)
+  );
 }
 
 function lines(report: ConceptRefs, brokenOnly: boolean): string[][] {
@@ -86,7 +123,23 @@ function lines(report: ConceptRefs, brokenOnly: boolean): string[][] {
     rows.push(row(join));
   }
 
+  for (const link of report.links) {
+    if (brokenOnly && !isBrokenLink(link)) continue;
+    rows.push(linkRow(link));
+  }
+
   return rows;
+}
+
+function linkRow(link: Link): string[] {
+  const target = cyan(link.target);
+  if (link.state === 'resolved') {
+    return [green('resolved'), target, dim(`-> ${link.resolvesTo}`)];
+  }
+  if (link.state === 'anchor-missing') {
+    return [red('anchor'), target, `no heading in ${link.resolvesTo} matches #${link.fragment}`];
+  }
+  return [red('unresolved'), target, 'nothing in this bundle at that path'];
 }
 
 function row(join: Join): string[] {
