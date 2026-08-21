@@ -17,6 +17,9 @@
   },
   "keywords": ["okf", "open-knowledge-format", "knowledge", "agents", "lifecycle"],
   "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/matzexp/okfctl.git" },
+  "homepage": "https://github.com/matzexp/okfctl#readme",
+  "bugs": { "url": "https://github.com/matzexp/okfctl/issues" },
   "dependencies": {
     "commander": "^13.1.0",
     "yaml": "^2.7.1"
