@@ -144,3 +144,45 @@ unknown producer-defined keys survive — §4.1 asks consumers to preserve unkno
 round-tripping, and `promote` is a round-trip.
 
 `deprecate` is the same shape of write for the stable→deprecated transition.
+
+## `catalog`
+
+```bash
+okfctl catalog                 # print
+okfctl catalog --write         # keep catalog.md at the bundle root
+okfctl catalog --check         # CI
+```
+
+`index` and `catalog` render the same SPEC §8 entry shape and differ only in scope, so the
+entry, the grouping, the pluralization, and the collation live in `core/render.ts` and both
+commands call them. What `catalog` adds is one thing `index` cannot say: the bundle as a
+whole, grouped by `type` rather than by directory.
+
+Three constraints shaped it.
+
+**Determinism is the whole feature.** `--check` is only worth a CI step if a failure means
+someone changed the corpus. So every marker is a function of frontmatter — `draft`,
+`deprecated`, `unverified`, `drifted` — and staleness, which is a function of *today*, is
+excluded even though `status` computes it and it would be genuinely useful here. A checked-in
+catalog that drifts overnight teaches maintainers to ignore the check. `generated.at` is
+carried across whenever the rendered body is unchanged, for the same reason the root
+`index.md` carries `okf_version` across: a value that moves on every run fails tomorrow and
+tells nobody anything. Collation is pinned to `en` rather than the ambient locale, or
+generated output would differ between machines.
+
+**Writing a file must not make the bundle non-conformant.** SPEC §3.1 reserves exactly
+`index.md` and `log.md`. A bare `catalog.md` at the root is therefore a concept with no
+`type` — a §11 error to every consumer that is not us. So the written file carries real
+frontmatter (`type: Index`, title, description, `generated`). `Index` is our convention; §4.1
+leaves the vocabulary open and §11 forbids rejecting an unknown value, so this is legal, and
+the README says plainly that the spec does not name it.
+
+**Generated output is not corpus.** `bundle-model` classifies a bundle-root `catalog.md`
+beside `index.md` and `log.md`, so it is not loaded as a concept. Otherwise the catalog lists
+itself, the root index lists it twice, and `status` reports okfctl's own output as unverified
+knowledge needing review. The exclusion is scoped to the root path — a `guides/catalog.md` is
+someone's concept and stays one.
+
+The default is stdout, unlike `index`, which writes. `index` maintains files SPEC §8 already
+expects to exist; `catalog.md` is a file we invented, and a bundle should only take on the
+obligation to keep one current by choosing to.

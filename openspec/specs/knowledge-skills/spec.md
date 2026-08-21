@@ -1,11 +1,12 @@
-## Purpose
+# knowledge-skills Specification
 
+## Purpose
 Give an agent the judgment layer the CLI does not carry: a set of skills that recognize
 which moment in a bundle's life is in front of them — new knowledge arriving, a draft
 earning trust, a stale concept needing a decision — and drive the matching `okfctl` verb,
 so the lifecycle is exercised rather than merely available.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Workflow Coverage
 

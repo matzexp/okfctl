@@ -1,8 +1,9 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadBundle, type Bundle } from '../core/bundle.ts';
-import { conceptTitle, type Concept } from '../core/concept.ts';
+import { CATALOG, loadBundle, type Bundle } from '../core/bundle.ts';
+import { conceptTitle, parseConcept, type Concept } from '../core/concept.ts';
 import { conceptStatus } from '../core/lifecycle.ts';
+import { compare, describe, groupByType, pluralize } from '../core/render.ts';
 import { dim, green, red } from '../core/term.ts';
 
 export interface IndexOptions {
@@ -89,42 +90,32 @@ function renderIndex(bundle: Bundle, dir: string, includeDeprecated: boolean): s
 
   if (here.length === 0 && children.size === 0) return null;
 
-  const sections = new Map<string, Concept[]>();
-  for (const concept of here) {
-    const type = typeof concept.data.type === 'string' && concept.data.type.trim()
-      ? concept.data.type.trim()
-      : 'Concepts';
-    const list = sections.get(type) ?? [];
-    list.push(concept);
-    sections.set(type, list);
-  }
+  const sections = groupByType(here);
 
   const parts: string[] = [];
   const preserved = dir === '' ? rootFrontmatter(bundle.root) : null;
   if (preserved) parts.push(preserved);
 
-  for (const type of [...sections.keys()].sort()) {
+  for (const [type, listed] of sections) {
     const lines = [`# ${pluralize(type)}`, ''];
-    for (const concept of sections.get(type)!) {
+    for (const concept of listed) {
       const name = `${concept.id.slice(prefix.length)}.md`;
       lines.push(`* [${conceptTitle(concept)}](${name})${describe(concept)}`);
     }
     parts.push(lines.join('\n'));
   }
 
+  // The whole-bundle view, linked from the entry point that leads to it. Only
+  // when one exists: the root index stays generated from what is on disk.
+  if (dir === '' && bundle.catalogFile) parts.push(catalogSection(bundle.root));
+
   if (children.size > 0) {
     const lines = ['# Subdirectories', ''];
-    for (const child of [...children].sort()) lines.push(`* [${child}](${child}/)`);
+    for (const child of [...children].sort(compare)) lines.push(`* [${child}](${child}/)`);
     parts.push(lines.join('\n'));
   }
 
   return `${parts.join('\n\n')}\n`;
-}
-
-function describe(concept: Concept): string {
-  const description = concept.data.description;
-  if (typeof description !== 'string' || !description.trim()) return '';
-  return ` - ${description.trim()}`;
 }
 
 function rootFrontmatter(root: string): string | null {
@@ -136,8 +127,9 @@ function rootFrontmatter(root: string): string | null {
   return version ? `---\n${version[0]}\n---` : null;
 }
 
-function pluralize(type: string): string {
-  if (/(s|x|z|ch|sh)$/i.test(type)) return `${type}es`;
-  if (/[^aeiou]y$/i.test(type)) return `${type.slice(0, -1)}ies`;
-  return `${type}s`;
+/** Link the generated catalog by its own title and description (SPEC §8). */
+function catalogSection(root: string): string {
+  const file = join(root, CATALOG);
+  const concept = parseConcept(file, 'catalog', readFileSync(file, 'utf8'));
+  return ['# Catalog', '', `* [${conceptTitle(concept)}](${CATALOG})${describe(concept)}`].join('\n');
 }

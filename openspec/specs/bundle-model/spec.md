@@ -18,6 +18,20 @@ as either a reserved file or a concept, sorting concepts by id.
 - **WHEN** a bundle contains `index.md` or `log.md` at any level of the hierarchy
 - **THEN** those files are recorded as reserved files rather than concepts (SPEC §3.1)
 
+#### Scenario: The generated catalog is not corpus
+
+- **WHEN** a bundle contains `catalog.md` at the bundle root
+- **THEN** it is recorded as a reserved file rather than a concept, because it is
+  generated output rather than knowledge, and so does not list itself, does not appear in
+  a generated index, and does not count toward corpus health
+
+#### Scenario: A catalog below the root is an ordinary concept
+
+- **WHEN** a file named `catalog.md` exists in a subdirectory rather than at the bundle
+  root
+- **THEN** it is classified as a concept, because only the bundle-root path is generated
+  output
+
 #### Scenario: Build directories and dotfiles are skipped
 
 - **WHEN** the walk encounters a directory named `node_modules`, `.git`, `dist`, `.next`,

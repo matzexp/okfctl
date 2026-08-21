@@ -92,6 +92,7 @@ Every command takes an optional bundle root via `--bundle <dir>` (default `.`).
 | `okfctl deprecate <concept>` | The stable→deprecated transition, logged the same way. |
 | `okfctl index` | Regenerate `index.md` from frontmatter (§8). `--check` for CI. |
 | `okfctl refs` | Reference integrity: footnote ↔ `sources[].id`, and internal links. `--strict` for CI. |
+| `okfctl catalog` | The whole bundle as one document, grouped by type. Prints by default. |
 
 Common invocations:
 
@@ -106,10 +107,37 @@ okfctl deprecate <id> --by human:me --reason "superseded by /metrics/revenue-v2"
 okfctl index --check                  # CI: fail when index.md has drifted
 okfctl refs --anchors                 # also verify #fragments against target headings
 okfctl refs --broken --strict         # CI: fail on any broken reference
+okfctl catalog                        # print the whole bundle, grouped by type
+okfctl catalog --write                # keep catalog.md at the bundle root
+okfctl catalog --check                # CI: fail when catalog.md has drifted
 ```
 
 Run `okfctl <command> --help` for the full flag list, and see
 [docs/design.md](docs/design.md) for what each command writes and why.
+
+## The catalog
+
+`index.md` answers "what is in this directory". `okfctl catalog` answers "what is in this
+bundle": one document listing every concept, grouped by `type` rather than by directory, so
+a Decision filed under `guides/` sits with the other Decisions. Entries carry a bracketed
+marker when the concept is not settled — `[draft, unverified]`, `[drifted]` — so the
+catalog says what exists *and* how far to trust it.
+
+It prints to stdout by default and touches nothing. `--write` keeps a copy at
+`catalog.md`, `--check` gates it in CI. Two details are deliberate:
+
+- **The rendering is a pure function of the bundle's bytes.** Nothing derived from today
+  reaches it — which is why staleness is *not* a marker. A `stale_after` passing would
+  otherwise drift a checked-in catalog on a morning nobody changed anything, with no commit
+  to explain it. `okfctl status --stale` is where a question whose answer depends on when
+  you ask belongs. For the same reason `generated.at` is carried across untouched whenever
+  the body is unchanged.
+- **The written file carries real frontmatter** — `type: Index`, a title, a description,
+  and `generated`. SPEC §3.1 reserves only `index.md` and `log.md`, so a bare `catalog.md`
+  would be a concept missing `type`: a §11 error to every consumer but this one. `Index` is
+  our convention, not a value the spec names. `okfctl` itself treats a bundle-root
+  `catalog.md` as output rather than corpus, so it never lists itself and never shows up in
+  `status` as unverified knowledge.
 
 ## Derived signals
 
@@ -149,6 +177,7 @@ A tool that errors on the soft tier produces bundles that are "valid" only to it
 - run: okfctl check          # conformance errors only
 - run: okfctl index --check  # index.md is in sync with frontmatter
 - run: okfctl refs --broken --strict
+- run: okfctl catalog --check  # only if you keep a catalog.md
 ```
 
 ## Development bundle

@@ -6,6 +6,7 @@ import { runPromote, runDeprecate } from './commands/transition.ts';
 import { runNew } from './commands/new.ts';
 import { runReview } from './commands/review.ts';
 import { runIndex } from './commands/index-gen.ts';
+import { runCatalog } from './commands/catalog.ts';
 import { runRefs } from './commands/refs.ts';
 import { red } from './core/term.ts';
 
@@ -119,6 +120,17 @@ program
   .option('--include-deprecated', 'list deprecated concepts too')
   .action(function (this: Command, options) {
     exit(runIndex({ bundle: bundleDir(this), ...options }));
+  });
+
+program
+  .command('catalog')
+  .description('render the whole bundle as one document, grouped by type')
+  .option('--write', 'write catalog.md at the bundle root instead of printing')
+  .option('--out <path>', 'write to a bundle-relative path instead of catalog.md')
+  .option('--check', 'exit non-zero when the written catalog has drifted')
+  .option('--include-deprecated', 'list deprecated concepts too')
+  .action(function (this: Command, options) {
+    exit(runCatalog({ bundle: bundleDir(this), ...options }));
   });
 
 function exit(code: number): never {

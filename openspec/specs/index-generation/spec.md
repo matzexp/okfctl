@@ -95,3 +95,25 @@ request, and SHALL skip directories that would yield an empty index.
 
 - **WHEN** a directory holds neither concepts nor child directories with concepts
 - **THEN** no `index.md` is generated for it
+
+### Requirement: Catalog Link
+
+The system SHALL link the whole-bundle catalog from the regenerated bundle-root
+`index.md` when a catalog file exists on disk, and SHALL link nothing when it does not, so
+that the root index stays generated from what is actually there.
+
+#### Scenario: Catalog present
+
+- **WHEN** `catalog.md` exists at the bundle root and the root `index.md` is regenerated
+- **THEN** the root index carries a link to it, ahead of the `# Subdirectories` section
+
+#### Scenario: Catalog absent
+
+- **WHEN** no catalog file exists at the bundle root
+- **THEN** the regenerated root index carries no catalog link and is byte-identical to
+  what it would have been before this change
+
+#### Scenario: Nested indexes are unaffected
+
+- **WHEN** an `index.md` below the root is regenerated
+- **THEN** it carries no catalog link

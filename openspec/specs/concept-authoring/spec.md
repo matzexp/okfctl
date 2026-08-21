@@ -1,10 +1,11 @@
-## Purpose
+# concept-authoring Specification
 
+## Purpose
 Create a new concept document that conforms on the first write, so that ingesting knowledge
 into a bundle starts from a valid frontmatter block with recorded provenance rather than
 from a hand-guessed one that `check` then rejects.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Concept Creation
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,7 @@ import { runPromote, runDeprecate } from '../src/commands/transition.ts';
 import { runNew } from '../src/commands/new.ts';
 import { runReview } from '../src/commands/review.ts';
 import { runIndex } from '../src/commands/index-gen.ts';
+import { runCatalog, renderCatalog } from '../src/commands/catalog.ts';
 import { runRefs } from '../src/commands/refs.ts';
 import { conceptStatus, isDrifted, isStale, isoDay, trustTier } from '../src/core/lifecycle.ts';
 
@@ -19,6 +20,24 @@ function sandbox(): string {
   const dir = mkdtempSync(join(tmpdir(), 'okfctl-'));
   cpSync(FIXTURE, dir, { recursive: true });
   return dir;
+}
+
+/** Capture what a command writes to stdout, including `process.stdout.write`. */
+function captured(run: () => number): { code: number; out: string } {
+  const log = console.log;
+  const write = process.stdout.write.bind(process.stdout);
+  let out = '';
+  console.log = () => {};
+  process.stdout.write = ((chunk: string) => {
+    out += chunk;
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    return { code: run(), out };
+  } finally {
+    console.log = log;
+    process.stdout.write = write;
+  }
 }
 
 /** Commands print progress; keep the test output readable. */
@@ -363,4 +382,125 @@ test('review dry run writes neither the concept nor the log', () => {
   );
   assert.equal(readFileSync(join(dir, 'metrics/margin.md'), 'utf8'), before);
   assert.equal(readFileSync(join(dir, 'log.md'), 'utf8'), log);
+});
+
+test('catalog groups the whole bundle by type, across directories', () => {
+  const dir = sandbox();
+  quietly(() => runNew('playbooks/headcount', { bundle: dir, type: 'Metric' }));
+  const body = renderCatalog(loadBundle(dir), false);
+
+  assert.match(body, /^# Catalog\n/);
+  // A Metric filed under playbooks/ belongs with the rest of the Metrics; the
+  // catalog groups by type, not by where a file happens to sit.
+  const metrics = body.slice(body.indexOf('# Metrics'), body.indexOf('\n\n# ', body.indexOf('# Metrics')));
+  assert.match(metrics, /\(playbooks\/headcount\.md\)/);
+  assert.match(metrics, /\(metrics\/revenue\.md\)/);
+  // A concept with no usable type still gets listed (SPEC 11 calls that an
+  // error; the catalog reports the bundle it has, it does not hide from it).
+  assert.match(body, /# Concepts\n\n\* \[.*\]\(playbooks\/freshness-alert\.md\)/);
+});
+
+test('catalog renders the same bytes twice, and nothing derived from today', () => {
+  const bundle = loadBundle(FIXTURE);
+  assert.equal(renderCatalog(bundle, false), renderCatalog(loadBundle(FIXTURE), false));
+
+  // metrics/margin is past its stale_after; staleness must not reach the body,
+  // or a checked-in catalog drifts on a morning nobody changed anything.
+  assert.equal(isStale(findConcept(bundle, 'metrics/margin').data), true);
+  assert.equal(renderCatalog(bundle, false).includes('stale'), false);
+});
+
+test('catalog marks what cannot be trusted, and leaves settled entries bare', () => {
+  const body = renderCatalog(loadBundle(FIXTURE), false);
+  const entry = (id: string) =>
+    body.split('\n').find((line) => line.includes(`(${id}.md)`))!;
+
+  // draft and never verified: both markers, in a fixed order.
+  assert.match(entry('metrics/revenue'), /\[draft, unverified\]/);
+  // stable and verified, but edited since: drift is ours, not the spec's.
+  assert.match(entry('metrics/margin'), /\[drifted\]/);
+  assert.equal(entry('metrics/income-statement').includes('['), true);
+  assert.match(entry('metrics/income-statement'), /\]\(metrics\/income-statement\.md\) - /);
+});
+
+test('catalog omits deprecated concepts unless asked for them', () => {
+  const dir = sandbox();
+  quietly(() => runDeprecate('metrics/margin', { bundle: dir, by: 'human:matze' }));
+
+  assert.equal(renderCatalog(loadBundle(dir), false).includes('metrics/margin.md'), false);
+  assert.match(renderCatalog(loadBundle(dir), true), /metrics\/margin\.md\) \[deprecated/);
+});
+
+test('catalog prints by default and writes nothing', () => {
+  const dir = sandbox();
+  const { code, out } = captured(() => runCatalog({ bundle: dir }));
+
+  assert.equal(code, 0);
+  assert.match(out, /^# Catalog\n/);
+  assert.equal(existsSync(join(dir, 'catalog.md')), false);
+});
+
+test('catalog writes a conformant concept and carries generated.at across', () => {
+  const dir = sandbox();
+  assert.equal(quietly(() => runCatalog({ bundle: dir, write: true })), 0);
+
+  const file = join(dir, 'catalog.md');
+  const written = readFileSync(file, 'utf8');
+  assert.match(written, /^---\ntype: Index\n/);
+  assert.match(written, /generated: \{ by: okfctl\/0\.1\.0, at: /);
+
+  // Rewriting an unchanged catalog must not move the timestamp, or --check
+  // fails tomorrow on a bundle nobody touched.
+  quietly(() => runCatalog({ bundle: dir, write: true }));
+  assert.equal(readFileSync(file, 'utf8'), written);
+
+  // The generated file is output, not corpus: it is neither a concept nor a
+  // source of new diagnostics.
+  const bundle = loadBundle(dir);
+  assert.equal(bundle.catalogFile, 'catalog.md');
+  assert.equal(bundle.concepts.some((concept) => concept.id === 'catalog'), false);
+  assert.equal(countBy(checkBundle(bundle), 'error'), 1);
+});
+
+test('catalog --check reports a missing and an out-of-date file, writing nothing', () => {
+  const dir = sandbox();
+  assert.equal(quietly(() => runCatalog({ bundle: dir, check: true })), 1);
+  assert.equal(existsSync(join(dir, 'catalog.md')), false);
+
+  quietly(() => runCatalog({ bundle: dir, write: true }));
+  assert.equal(quietly(() => runCatalog({ bundle: dir, check: true })), 0);
+
+  quietly(() => runNew('metrics/churn', { bundle: dir, type: 'Metric' }));
+  assert.equal(quietly(() => runCatalog({ bundle: dir, check: true })), 1);
+});
+
+test('catalog --out stays inside the bundle', () => {
+  const dir = sandbox();
+  assert.equal(quietly(() => runCatalog({ bundle: dir, out: 'derived/all.md' })), 0);
+  assert.equal(existsSync(join(dir, 'derived/all.md')), true);
+  assert.equal(quietly(() => runCatalog({ bundle: dir, out: '../escape.md' })), 1);
+});
+
+test('a catalog below the root is an ordinary concept', () => {
+  const dir = sandbox();
+  writeFileSync(join(dir, 'metrics/catalog.md'), '---\ntype: Note\n---\n\n# Not ours\n');
+
+  const bundle = loadBundle(dir);
+  assert.equal(bundle.catalogFile, null);
+  assert.equal(bundle.concepts.some((concept) => concept.id === 'metrics/catalog'), true);
+});
+
+test('the root index links the catalog only once one exists', () => {
+  const dir = sandbox();
+  quietly(() => runIndex({ bundle: dir }));
+  assert.equal(readFileSync(join(dir, 'index.md'), 'utf8').includes('# Catalog'), false);
+
+  quietly(() => runCatalog({ bundle: dir, write: true }));
+  quietly(() => runIndex({ bundle: dir }));
+  const root = readFileSync(join(dir, 'index.md'), 'utf8');
+  assert.match(root, /# Catalog\n\n\* \[Catalog\]\(catalog\.md\) - /);
+  assert.ok(root.indexOf('# Catalog') < root.indexOf('# Subdirectories'));
+
+  // Nested indexes never link it.
+  assert.equal(readFileSync(join(dir, 'metrics/index.md'), 'utf8').includes('catalog.md'), false);
 });

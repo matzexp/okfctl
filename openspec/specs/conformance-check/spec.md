@@ -83,6 +83,12 @@ required by it, and these SHALL never fail a bundle.
 - **WHEN** a concept is stale or drifted
 - **THEN** a warning is reported for each condition
 
+#### Scenario: Unresolved internal links
+
+- **WHEN** a concept links to a path that does not exist in the bundle
+- **THEN** a warning is reported naming the link target, and the bundle stays conformant,
+  because SPEC §11 forbids rejecting a bundle for broken cross-links
+
 ### Requirement: Opt-In Strictness
 
 The system SHALL exit non-zero when a bundle has errors, and SHALL exit zero on warnings
