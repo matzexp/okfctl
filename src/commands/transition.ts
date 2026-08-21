@@ -1,10 +1,10 @@
-import { writeFileSync } from 'node:fs';
 import { findConcept, loadBundle } from '../core/bundle.ts';
+import { commit } from '../core/commit.ts';
+import { sentence } from '../core/log.ts';
 import { appendEvent, conceptTitle, serializeConcept, setField } from '../core/concept.ts';
 import { checkConcept } from '../core/check.ts';
-import { appendLogEntry, displayPath, nearestLog } from '../core/log.ts';
-import { conceptStatus, isoDay, resolveStaleIn } from '../core/lifecycle.ts';
-import { bold, cyan, dim, green, red, yellow } from '../core/term.ts';
+import { ACTOR_FORMS, conceptStatus, isValidActor, resolveStaleIn } from '../core/lifecycle.ts';
+import { dim, green, red, yellow } from '../core/term.ts';
 
 export interface PromoteOptions {
   bundle: string;
@@ -25,9 +25,6 @@ export interface DeprecateOptions {
   noLog?: boolean;
 }
 
-/** SPEC 7: `<producer>/<version>`, `human:<id>`, or `process:<id>`. */
-const ACTOR = /^(human:[^\s]+|process:[^\s]+|[^\s:]+\/[^\s]+)$/;
-
 export function runPromote(ref: string, options: PromoteOptions): number {
   const bundle = loadBundle(options.bundle);
   const concept = findConcept(bundle, ref);
@@ -40,9 +37,9 @@ export function runPromote(ref: string, options: PromoteOptions): number {
     return 1;
   }
 
-  if (!ACTOR.test(options.by)) {
+  if (!isValidActor(options.by)) {
     console.error(red(`invalid actor "${options.by}"`));
-    console.error(dim('expected human:<id>, process:<id>, or <producer>/<version> (SPEC 7)'));
+    console.error(dim(ACTOR_FORMS));
     return 1;
   }
 
@@ -61,8 +58,11 @@ export function runPromote(ref: string, options: PromoteOptions): number {
   const action = before === 'stable' ? 're-verified' : `promoted ${before} -> stable`;
   const entry = `**${verb}**: [${conceptTitle(concept)}](/${concept.id}.md) ${action} by ${options.by}.`;
 
-  return commit(bundle.root, concept.file, serializeConcept(concept), entry, {
-    id: concept.id,
+  return commit({
+    root: bundle.root,
+    file: concept.file,
+    contents: serializeConcept(concept),
+    logEntry: entry,
     headline: `${concept.id}  ${dim(before)} -> ${green('stable')}`,
     details: [
       `verified += { by: ${options.by}, at: ${at} }`,
@@ -77,7 +77,7 @@ export function runDeprecate(ref: string, options: DeprecateOptions): number {
   const bundle = loadBundle(options.bundle);
   const concept = findConcept(bundle, ref);
 
-  if (options.by && !ACTOR.test(options.by)) {
+  if (options.by && !isValidActor(options.by)) {
     console.error(red(`invalid actor "${options.by}"`));
     return 1;
   }
@@ -90,46 +90,18 @@ export function runDeprecate(ref: string, options: DeprecateOptions): number {
 
   setField(concept, 'status', 'deprecated');
 
-  const reason = options.reason ? ` Reason: ${options.reason}.` : '';
+  const reason = options.reason ? ` Reason: ${sentence(options.reason)}` : '';
   const actor = options.by ? ` by ${options.by}` : '';
   const entry = `**Deprecation**: [${conceptTitle(concept)}](/${concept.id}.md) deprecated${actor}.${reason}`;
 
-  return commit(bundle.root, concept.file, serializeConcept(concept), entry, {
-    id: concept.id,
+  return commit({
+    root: bundle.root,
+    file: concept.file,
+    contents: serializeConcept(concept),
+    logEntry: entry,
     headline: `${concept.id}  ${dim(before)} -> ${yellow('deprecated')}`,
     details: [options.reason ? `reason: ${options.reason}` : null],
     dryRun: options.dryRun === true,
     noLog: options.noLog === true,
   });
-}
-
-interface CommitInfo {
-  id: string;
-  headline: string;
-  details: (string | null)[];
-  dryRun: boolean;
-  noLog: boolean;
-}
-
-function commit(
-  root: string,
-  file: string,
-  contents: string,
-  logEntry: string,
-  info: CommitInfo,
-): number {
-  const logFile = nearestLog(root, file);
-
-  console.log(bold(info.headline));
-  for (const detail of info.details) if (detail) console.log(`  ${dim(detail)}`);
-  if (!info.noLog) console.log(`  ${dim(`log: ${displayPath(root, logFile)}`)}`);
-
-  if (info.dryRun) {
-    console.log(cyan('\ndry run; nothing written'));
-    return 0;
-  }
-
-  writeFileSync(file, contents);
-  if (!info.noLog) appendLogEntry(logFile, logEntry, isoDay());
-  return 0;
 }

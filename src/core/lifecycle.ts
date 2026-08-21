@@ -20,6 +20,16 @@ export function conceptStatus(data: Record<string, unknown>): Status {
   return 'stable';
 }
 
+/** SPEC §7: `<producer>/<version>`, `human:<id>`, or `process:<id>`. */
+const ACTOR = /^(human:[^\s]+|process:[^\s]+|[^\s:]+\/[^\s]+)$/;
+
+export function isValidActor(actor: string): boolean {
+  return ACTOR.test(actor);
+}
+
+/** The accepted forms, for error messages. */
+export const ACTOR_FORMS = 'expected human:<id>, process:<id>, or <producer>/<version> (SPEC §7)';
+
 /** True for the `human:<id>` actor form (SPEC §7). */
 export function isHumanActor(actor: string): boolean {
   return actor.startsWith('human:');

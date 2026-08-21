@@ -26,6 +26,8 @@ None of that is visible without tooling, and all of it is fixable with it.
 
 `okfctl` deliberately covers the **maintainer's** loop, not the producer's. It does not
 generate knowledge — the OKF reference agent and a dozen ecosystem adapters already do that.
+`new` is not an exception: it writes a conformant, empty shell with recorded provenance and
+leaves the content to whoever has it.
 
 ### Non-goals
 
@@ -59,6 +61,8 @@ don't do that.
 |---|---|
 | `okfctl check` | Two-tier conformance + lint. Errors gate CI; warnings inform. |
 | `okfctl status` | Corpus health: trust tiers, stale, draft, drifted, orphans. |
+| `okfctl new <path>` | Ingest: create a concept that conforms on the first write. |
+| `okfctl review <concept>` | Record what a review found: still accurate, or no longer accurate. |
 | `okfctl promote <concept>` | The draft→stable transition: record verification, flip status, set freshness, log it. |
 | `okfctl deprecate <concept>` | The stable→deprecated transition, logged the same way. |
 | `okfctl index` | Regenerate `index.md` from frontmatter (§8). `--check` for CI. |
@@ -135,6 +139,53 @@ caller gating CI has asked for the stricter reading.
 Code fences and inline code spans are excluded before scanning, so neither a `[^` inside a
 SQL block nor a link in a shell sample is mistaken for a reference.
 
+### `new` in detail
+
+```bash
+okfctl new decisions/envoy-gateway --type Decision --by human:matze \
+  --title "Envoy Gateway replaces Traefik" --description "..." --tags networking,gateway
+```
+
+Writes `type`, `title`, `description`, `tags`, `status`, `generated` in the order the
+format's own examples use, through the same YAML document model `promote` writes through —
+so a created concept and an edited one are formatted identically.
+
+`--type` is required and unconstrained. It is the one value §11 makes mandatory, and §4.1
+leaves its vocabulary open, so the tool insists on having one and never questions which.
+Fields you do not supply are omitted rather than written blank: an absent `description`
+draws a warning, and a blank one draws nothing, which makes blank the worse of the two.
+`stale_after` is written only when asked for — a guessed freshness horizon is a false claim.
+
+New concepts open as `status: draft` with no `verified` entry, so they read `unverified`
+(§5.3, §5.4). Nothing is overwritten, ever: if the path is taken, the command refuses.
+
+### `review` in detail
+
+A review has two outcomes, and they are not the same write.
+
+```bash
+okfctl review metrics/revenue --confirm  --by human:matze --stale-in 90d
+okfctl review metrics/revenue --outdated --by human:matze --reason "FY26 restatement"
+```
+
+`--confirm` appends a `verified` entry and moves `stale_after` forward. It leaves `status`
+alone — saying content is still accurate is not a claim about its lifecycle state.
+
+`--outdated` sets `stale_after` to today, so §5.5 reports the concept stale from that
+moment, and writes **nothing** to `verified`. That omission is the point: §5.3 derives the
+trust tier from `verified`, so recording that a human looked would *raise* the tier of a
+concept that human just found wrong. `status` is left alone too — choosing between a
+rewrite and a deprecation is a separate decision with a separate verb.
+
+`stale_after` is also the only field it writes. OKF v0.2 has no field for "reviewed and
+found wrong", and §11's tolerance for unknown keys would have made one legal — but a key
+only `okfctl` reads is a signal no other consumer can act on. The narrative goes in
+`log.md`, which is what §9 is for.
+
+**`promote` or `review --confirm`?** `promote` when the status should change,
+`review --confirm` when it should not. Re-promoting a stable concept still re-verifies it;
+that path is older and stays valid.
+
 ### `promote` in detail
 
 ```bash
@@ -167,7 +218,11 @@ okfctl check --strict            # treat warnings as errors (opt-in only)
 okfctl status                    # health summary
 okfctl status --stale --drifted  # filter to what needs attention
 okfctl status --json             # machine-readable
+okfctl new decisions/x --type Decision --by human:me
+okfctl new decisions/x --type Decision --dry-run   # preview the frontmatter
 okfctl promote <id> --by human:me
+okfctl review <id> --confirm --by human:me --stale-in 90d
+okfctl review <id> --outdated --by human:me --reason "..."
 okfctl deprecate <id> --by human:me --reason "superseded by /metrics/revenue-v2"
 okfctl index --check             # CI: fail when index.md has drifted
 okfctl refs                      # citations and links, both directions
@@ -185,9 +240,34 @@ repo-root guides, and operational notes — plus the agent-skill repository used
 by `okfctl refs`, not counted by hand — plus genuinely deprecated, draft, stale, and
 drifted states to run the commands against. See its README.
 
+## Agent skills
+
+The CLI knows *how* to make each change. The skills in [`.claude/skills/`](.claude/skills/)
+know *when* — they are what makes the lifecycle get exercised rather than merely be
+available. Each is invocable by name as `/okf:<name>`, or selected from its description.
+
+| Skill | For |
+|---|---|
+| `okf-triage` | "How is this bundle doing?" Reports health, names the workflow each finding needs, and writes nothing. |
+| `okf-ingest` | New knowledge arriving. Matches the bundle's own types and placement, creates through `new`, then writes the body. |
+| `okf-promote` | A draft that has earned trust. Reads it first, establishes a real actor, sets a horizon. |
+| `okf-review` | The stale and drifted backlog. Checks each concept against its `sources[]` and routes to the outcome it actually found. |
+| `okf-deprecate` | Retiring knowledge — and finding the live concepts still pointing at it, which `refs` cannot flag because the file is still there. |
+
+Two rules hold the set together. **The CLI is the only writer**: no skill edits a
+frontmatter block by hand, so actor validation, the conformance gate, the log entry, and
+the preservation of unknown keys apply to every change an agent makes. Body prose is the
+one exception, because no verb authors content. And **nothing is invented**: an actor, a
+source, or a freshness horizon that the agent cannot establish is asked for, not guessed —
+each is a durable claim that other tools will read.
+
+`okf-review` carries the sharpest version of that: a concept it cannot verify gets neither
+outcome recorded. An unverifiable concept is a real finding, and a fabricated confirmation
+is the one failure the trust tier exists to prevent.
+
 ## Status
 
-Early. `check`, `status`, `promote`, `deprecate`, `index`, and `refs` are the first slice.
-`/okf:*` agent slash commands are next.
+Early. `check`, `status`, `new`, `review`, `promote`, `deprecate`, `index`, and `refs` are
+the shipped surface, with the `/okf:*` skills driving them.
 
 Targets OKF **v0.2**.

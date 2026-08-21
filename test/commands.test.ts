@@ -1,15 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdtempSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadBundle, findConcept } from '../src/core/bundle.ts';
 import { checkBundle, countBy } from '../src/core/check.ts';
 import { runPromote, runDeprecate } from '../src/commands/transition.ts';
+import { runNew } from '../src/commands/new.ts';
+import { runReview } from '../src/commands/review.ts';
 import { runIndex } from '../src/commands/index-gen.ts';
 import { runRefs } from '../src/commands/refs.ts';
-import { conceptStatus, trustTier } from '../src/core/lifecycle.ts';
+import { conceptStatus, isDrifted, isStale, isoDay, trustTier } from '../src/core/lifecycle.ts';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/bundle', import.meta.url));
 
@@ -172,4 +174,193 @@ test('check reports an unresolved link as a warning, leaving the bundle conforma
 test('check never reports a missing anchor, however strict the caller is', () => {
   const diagnostics = checkBundle(loadBundle(FIXTURE));
   assert.equal(diagnostics.some((entry) => entry.rule.includes('anchor')), false);
+});
+
+test('new writes a conformant concept and logs it', () => {
+  const dir = sandbox();
+  const code = quietly(() =>
+    runNew('decisions/gateway-api', {
+      bundle: dir,
+      type: 'Decision',
+      description: 'Gateway API replaces Ingress.',
+      tags: ['networking'],
+      by: 'human:matze',
+    }),
+  );
+  assert.equal(code, 0);
+
+  const created = findConcept(loadBundle(dir), 'decisions/gateway-api');
+  assert.equal(created.data.type, 'Decision');
+  assert.equal(conceptStatus(created.data), 'draft');
+  assert.equal(trustTier(created.data), 'unverified');
+  // A title the caller did not give is derived from the filename, not left empty.
+  assert.equal(created.data.title, 'Gateway Api');
+  assert.equal((created.data.generated as { by: string }).by, 'human:matze');
+  // SPEC 5.5: no horizon is claimed when none was asked for.
+  assert.equal(created.data.stale_after, undefined);
+
+  // The new concept contributes no conformance errors of its own.
+  const errors = checkBundle(loadBundle(dir)).filter(
+    (entry) => entry.level === 'error' && entry.where === 'decisions/gateway-api.md',
+  );
+  assert.equal(errors.length, 0);
+
+  assert.match(readFileSync(join(dir, 'log.md'), 'utf8'), /\*\*Created\*\*: \[Gateway Api\]/);
+});
+
+test('new requires a type but accepts one outside the conventional set', () => {
+  const dir = sandbox();
+  assert.equal(quietly(() => runNew('notes/x', { bundle: dir })), 1);
+  assert.equal(existsSync(join(dir, 'notes/x.md')), false);
+
+  // SPEC 11 forbids rejecting an unknown type.
+  assert.equal(quietly(() => runNew('notes/x', { bundle: dir, type: 'Runbook' })), 0);
+  assert.equal(findConcept(loadBundle(dir), 'notes/x').data.type, 'Runbook');
+});
+
+test('new refuses to overwrite, and never doubles the extension', () => {
+  const dir = sandbox();
+  const before = readFileSync(join(dir, 'metrics/revenue.md'), 'utf8');
+  assert.equal(quietly(() => runNew('metrics/revenue.md', { bundle: dir, type: 'Metric' })), 1);
+  assert.equal(readFileSync(join(dir, 'metrics/revenue.md'), 'utf8'), before);
+  assert.equal(existsSync(join(dir, 'metrics/revenue.md.md')), false);
+});
+
+test('new rejects a reserved filename and a path outside the bundle', () => {
+  const dir = sandbox();
+  assert.equal(quietly(() => runNew('metrics/index', { bundle: dir, type: 'Metric' })), 1);
+  assert.equal(quietly(() => runNew('../escape', { bundle: dir, type: 'Metric' })), 1);
+});
+
+test('new dry run writes neither the concept nor the log', () => {
+  const dir = sandbox();
+  const log = readFileSync(join(dir, 'log.md'), 'utf8');
+  assert.equal(
+    quietly(() => runNew('decisions/x', { bundle: dir, type: 'Decision', dryRun: true })),
+    0,
+  );
+  assert.equal(existsSync(join(dir, 'decisions/x.md')), false);
+  assert.equal(readFileSync(join(dir, 'log.md'), 'utf8'), log);
+});
+
+test('review demands exactly one outcome', () => {
+  const dir = sandbox();
+  assert.equal(quietly(() => runReview('metrics/margin', { bundle: dir })), 1);
+  assert.equal(
+    quietly(() => runReview('metrics/margin', { bundle: dir, confirm: true, outdated: true, by: 'human:matze' })),
+    1,
+  );
+});
+
+test('a confirmed review verifies, answers drift, and leaves status alone', () => {
+  const dir = sandbox();
+  const before = findConcept(loadBundle(dir), 'metrics/margin');
+  assert.equal(isDrifted(before.data), true);
+
+  const code = quietly(() =>
+    runReview('metrics/margin', { bundle: dir, confirm: true, by: 'human:matze', staleIn: '90d' }),
+  );
+  assert.equal(code, 0);
+
+  const after = findConcept(loadBundle(dir), 'metrics/margin');
+  assert.equal(conceptStatus(after.data), 'stable');
+  assert.equal(trustTier(after.data), 'human-reviewed');
+  // The new verification post-dates generated.at, so the concept reads clean.
+  assert.equal(isDrifted(after.data), false);
+  assert.equal(isStale(after.data), false);
+  assert.match(readFileSync(join(dir, 'log.md'), 'utf8'), /confirmed still accurate by human:matze/);
+});
+
+test('confirming a draft records the verification without promoting it', () => {
+  const dir = sandbox();
+  quietly(() => runReview('metrics/revenue', { bundle: dir, confirm: true, by: 'human:matze' }));
+  const concept = findConcept(loadBundle(dir), 'metrics/revenue');
+  assert.equal(conceptStatus(concept.data), 'draft');
+  assert.equal(trustTier(concept.data), 'human-reviewed');
+});
+
+test('confirmation without an actor writes nothing', () => {
+  const dir = sandbox();
+  const before = readFileSync(join(dir, 'metrics/margin.md'), 'utf8');
+  assert.equal(quietly(() => runReview('metrics/margin', { bundle: dir, confirm: true })), 1);
+  assert.equal(readFileSync(join(dir, 'metrics/margin.md'), 'utf8'), before);
+});
+
+test('an outdated review marks stale today and claims no verification', () => {
+  const dir = sandbox();
+  const before = findConcept(loadBundle(dir), 'metrics/income-statement');
+  assert.equal(isStale(before.data), false);
+
+  const code = quietly(() =>
+    runReview('income-statement', { bundle: dir, outdated: true, by: 'human:matze', reason: 'FY26 restatement' }),
+  );
+  assert.equal(code, 0);
+
+  const after = findConcept(loadBundle(dir), 'metrics/income-statement');
+  assert.equal(after.data.stale_after, isoDay());
+  assert.equal(isStale(after.data), true);
+  // The trust tier is exactly what it was: the review disproved the content,
+  // so it must not raise the tier by appending to verified (SPEC 5.3).
+  assert.deepEqual(after.data.verified, before.data.verified);
+  assert.equal(trustTier(after.data), trustTier(before.data));
+  // Status is the maintainer's next decision, not this command's.
+  assert.equal(conceptStatus(after.data), conceptStatus(before.data));
+
+  const log = readFileSync(join(dir, 'log.md'), 'utf8');
+  assert.match(log, /found outdated by human:matze/);
+  assert.match(log, /FY26 restatement/);
+});
+
+test('an outdated review writes no frontmatter key OKF does not define', () => {
+  const dir = sandbox();
+  const before = Object.keys(findConcept(loadBundle(dir), 'metrics/margin').data);
+  quietly(() => runReview('metrics/margin', { bundle: dir, outdated: true }));
+  const after = Object.keys(findConcept(loadBundle(dir), 'metrics/margin').data);
+  assert.deepEqual(after, before);
+});
+
+test('a created concept survives the full loop with zero conformance errors', () => {
+  const dir = sandbox();
+  const errors = () =>
+    checkBundle(loadBundle(dir)).filter(
+      (entry) => entry.level === 'error' && entry.where === 'decisions/loop.md',
+    ).length;
+
+  quietly(() => runNew('decisions/loop', { bundle: dir, type: 'Decision', by: 'human:matze' }));
+  assert.equal(errors(), 0);
+  quietly(() => runPromote('decisions/loop', { bundle: dir, by: 'human:matze', staleIn: '30d' }));
+  assert.equal(errors(), 0);
+  quietly(() => runReview('decisions/loop', { bundle: dir, confirm: true, by: 'human:matze', staleIn: '90d' }));
+  assert.equal(errors(), 0);
+  quietly(() => runReview('decisions/loop', { bundle: dir, outdated: true, by: 'human:matze' }));
+  assert.equal(errors(), 0);
+  quietly(() => runDeprecate('decisions/loop', { bundle: dir, by: 'human:matze' }));
+  assert.equal(errors(), 0);
+  assert.equal(conceptStatus(findConcept(loadBundle(dir), 'decisions/loop').data), 'deprecated');
+});
+
+test('new rejects an actor outside the SPEC 7 convention', () => {
+  const dir = sandbox();
+  assert.equal(quietly(() => runNew('notes/y', { bundle: dir, type: 'Note', by: 'matze' })), 1);
+  assert.equal(existsSync(join(dir, 'notes/y.md')), false);
+});
+
+test('new can opt out of the log entry', () => {
+  const dir = sandbox();
+  const log = readFileSync(join(dir, 'log.md'), 'utf8');
+  assert.equal(quietly(() => runNew('notes/z', { bundle: dir, type: 'Note', noLog: true })), 0);
+  assert.equal(existsSync(join(dir, 'notes/z.md')), true);
+  assert.equal(readFileSync(join(dir, 'log.md'), 'utf8'), log);
+});
+
+test('review dry run writes neither the concept nor the log', () => {
+  const dir = sandbox();
+  const before = readFileSync(join(dir, 'metrics/margin.md'), 'utf8');
+  const log = readFileSync(join(dir, 'log.md'), 'utf8');
+  assert.equal(
+    quietly(() => runReview('metrics/margin', { bundle: dir, outdated: true, dryRun: true })),
+    0,
+  );
+  assert.equal(readFileSync(join(dir, 'metrics/margin.md'), 'utf8'), before);
+  assert.equal(readFileSync(join(dir, 'log.md'), 'utf8'), log);
 });

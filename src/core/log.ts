@@ -53,6 +53,12 @@ export function appendLogEntry(logFile: string, entry: string, today = isoDay())
   writeFileSync(logFile, `${lines.join('\n').replace(/\n+$/, '')}\n`);
 }
 
+/** End a fragment with a single full stop, whatever punctuation it arrived with. */
+export function sentence(text: string): string {
+  const trimmed = text.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
 export function displayPath(root: string, file: string): string {
   return relative(root, file).split(sep).join('/') || file;
 }

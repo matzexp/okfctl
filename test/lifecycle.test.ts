@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseConcept, serializeConcept, appendEvent } from '../src/core/concept.ts';
+import { createConcept, parseConcept, serializeConcept, appendEvent } from '../src/core/concept.ts';
 import {
   conceptStatus,
   isDrifted,
@@ -108,4 +108,34 @@ test('resolveStaleIn handles day, week, month, year', () => {
   assert.equal(resolveStaleIn('6m', from), '2026-07-01');
   assert.equal(resolveStaleIn('1y', from), '2027-01-01');
   assert.throws(() => resolveStaleIn('soon', from), /invalid duration/);
+});
+
+test('a created concept round-trips through the serializer', () => {
+  const built = createConcept('/tmp/new.md', 'decisions/new', [
+    ['type', 'Decision'],
+    ['title', 'Gateway API'],
+    ['description', undefined],
+    ['tags', ['networking', 'platform']],
+    ['status', 'draft'],
+    ['generated', { by: 'human:matze', at: '2026-08-21T00:00:00Z' }],
+  ], '\n# Gateway API\n');
+
+  const text = serializeConcept(built);
+  // The bundle's conventions: tight flow sequences, padded flow mappings.
+  assert.match(text, /^---\ntype: Decision\n/);
+  assert.match(text, /tags: \[networking, platform\]/);
+  assert.match(text, /generated: \{ by: human:matze, at: 2026-08-21T00:00:00Z \}/);
+  // An undefined value is omitted, not written blank.
+  assert.equal(text.includes('description'), false);
+
+  const reparsed = parseConcept('/tmp/new.md', 'decisions/new', text);
+  assert.equal(reparsed.parseError, null);
+  assert.deepEqual(reparsed.data, {
+    type: 'Decision',
+    title: 'Gateway API',
+    tags: ['networking', 'platform'],
+    status: 'draft',
+    generated: { by: 'human:matze', at: '2026-08-21T00:00:00Z' },
+  });
+  assert.equal(reparsed.body, '\n# Gateway API\n');
 });

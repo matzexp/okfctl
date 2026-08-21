@@ -3,6 +3,8 @@ import { Command } from 'commander';
 import { runCheck } from './commands/check.ts';
 import { runStatus } from './commands/status.ts';
 import { runPromote, runDeprecate } from './commands/transition.ts';
+import { runNew } from './commands/new.ts';
+import { runReview } from './commands/review.ts';
 import { runIndex } from './commands/index-gen.ts';
 import { runRefs } from './commands/refs.ts';
 import { red } from './core/term.ts';
@@ -38,6 +40,39 @@ program
   .option('--json', 'machine-readable output')
   .action(function (this: Command, options) {
     exit(runStatus({ bundle: bundleDir(this), ...options }));
+  });
+
+program
+  .command('new <path>')
+  .description('create a conformant concept document at a bundle-relative path')
+  .requiredOption('--type <type>', 'concept type, e.g. Decision (SPEC 11; open vocabulary)')
+  .option('--title <text>', 'title; defaults to the filename read as words')
+  .option('--description <text>', 'one-line summary')
+  .option('--tags <list>', 'comma-separated tags', (value: string) =>
+    value.split(',').map((tag) => tag.trim()).filter(Boolean))
+  .option('--by <actor>', 'producing actor recorded in generated (SPEC 7)')
+  .option('--status <status>', 'initial status', 'draft')
+  .option('--stale-after <date>', 'set stale_after to an absolute YYYY-MM-DD')
+  .option('--stale-in <duration>', 'set stale_after relative to today, e.g. 90d, 6m')
+  .option('--no-log', 'skip the log.md entry')
+  .option('-n, --dry-run', 'show what would be written without writing it')
+  .action(function (this: Command, path: string, options) {
+    exit(runNew(path, { bundle: bundleDir(this), ...options, noLog: options.log === false }));
+  });
+
+program
+  .command('review <concept>')
+  .description('record a review outcome: still accurate, or no longer accurate')
+  .option('--confirm', 'still accurate: record a verification')
+  .option('--outdated', 'no longer accurate: mark stale as of today, verify nothing')
+  .option('--by <actor>', 'reviewing actor (SPEC 7); required with --confirm')
+  .option('--reason <text>', 'recorded in the log entry')
+  .option('--stale-after <date>', 'with --confirm, set the next horizon to a YYYY-MM-DD')
+  .option('--stale-in <duration>', 'with --confirm, set the next horizon relative to today')
+  .option('--no-log', 'skip the log.md entry')
+  .option('-n, --dry-run', 'show the outcome without writing')
+  .action(function (this: Command, concept: string, options) {
+    exit(runReview(concept, { bundle: bundleDir(this), ...options, noLog: options.log === false }));
   });
 
 program

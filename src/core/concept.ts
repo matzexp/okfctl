@@ -36,6 +36,37 @@ export function parseConcept(file: string, id: string, raw: string): Concept {
   return { file, id, doc, data, body, parseError: null };
 }
 
+/**
+ * Build a concept that has no file behind it yet. Frontmatter goes through the
+ * same `Document` the parser produces, so `serializeConcept` renders a created
+ * concept and an edited one identically — there is no second formatter to keep
+ * in sync.
+ *
+ * Keys are written in the order given. Values that are `undefined` are skipped
+ * entirely: an empty `description:` is worse than an absent one, since `check`
+ * warns on absent and silently accepts blank.
+ */
+export function createConcept(
+  file: string,
+  id: string,
+  frontmatter: Array<[string, unknown]>,
+  body: string,
+): Concept {
+  const doc = new Document({});
+  for (const [key, value] of frontmatter) {
+    if (value === undefined || value === null) continue;
+    const node: unknown = doc.createNode(value);
+    // Match the bundle's conventions: `{ by, at }` mappings and `[a, b]`
+    // sequences of scalars stay on one line; anything nested does not.
+    if (isMap(node)) node.flow = true;
+    else if (isSeq(node) && node.items.every((item) => !isMap(item) && !isSeq(item))) {
+      node.flow = true;
+    }
+    doc.set(key, node);
+  }
+  return { file, id, doc: doc as Document.Parsed, data: (doc.toJS() ?? {}) as Record<string, unknown>, body, parseError: null };
+}
+
 export function readConcept(file: string, id: string): Concept {
   return parseConcept(file, id, readFileSync(file, 'utf8'));
 }
