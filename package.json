@@ -7,21 +7,39 @@
     "okfctl": "dist/cli.js",
     "okf": "dist/cli.js"
   },
-  "files": ["dist", "skills", "commands"],
-  "engines": { "node": ">=20.19.0" },
+  "files": [
+    "dist",
+    "skills",
+    "commands"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "node --experimental-strip-types src/cli.ts",
     "test": "node --test --experimental-strip-types test/*.test.ts",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["okf", "open-knowledge-format", "knowledge", "agents", "lifecycle"],
+  "keywords": [
+    "okf",
+    "open-knowledge-format",
+    "knowledge",
+    "agents",
+    "lifecycle"
+  ],
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/matzexp/okfctl.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matzexp/okfctl.git"
+  },
   "homepage": "https://github.com/matzexp/okfctl#readme",
-  "bugs": { "url": "https://github.com/matzexp/okfctl/issues" },
+  "bugs": {
+    "url": "https://github.com/matzexp/okfctl/issues"
+  },
   "dependencies": {
     "commander": "^13.1.0",
+    "minisearch": "^7.2.0",
     "yaml": "^2.7.1"
   },
   "devDependencies": {

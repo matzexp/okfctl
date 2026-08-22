@@ -19,6 +19,7 @@ What it does not provide is any way to **operate** on those fields once they exi
 okfctl status      # what is stale, drifted, unverified, or still a draft
 okfctl check       # conformance errors and advisory lint warnings
 okfctl refs        # do citations and internal links still resolve?
+okfctl search <q>  # find concepts by relevance, frontmatter and body together
 okfctl capture     # dump what a session established into the drafts area
 ```
 
@@ -141,6 +142,7 @@ holding area.
 | `okfctl index` | Regenerate `index.md` from frontmatter (§8). `--check` for CI. |
 | `okfctl refs` | Reference integrity: footnote ↔ `sources[].id`, and internal links. `--strict` for CI. |
 | `okfctl catalog` | The whole bundle as one document, grouped by type. Prints by default. |
+| `okfctl search <query>` | Ranked full-text search over `title`, `description`, `tags` and body. Indexed in memory per run, never persisted. `--limit` to widen. |
 
 Common invocations:
 

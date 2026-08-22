@@ -11,6 +11,7 @@ import { runHook } from './commands/hook.ts';
 import { runReview } from './commands/review.ts';
 import { runIndex } from './commands/index-gen.ts';
 import { runCatalog } from './commands/catalog.ts';
+import { runSearch, DEFAULT_LIMIT } from './commands/search.ts';
 import { runRefs } from './commands/refs.ts';
 import { DEFAULT_DRAFTS_DIR } from './core/drafts.ts';
 import { requireBundleDir, resolveBundleDir } from './core/userconfig.ts';
@@ -204,6 +205,18 @@ program
   .option('--include-deprecated', 'list deprecated concepts too')
   .action(function (this: Command, options) {
     exit(runIndex({ bundle: bundleDir(this), ...options }));
+  });
+
+program
+  .command('search <query>')
+  .description('find concepts by relevance across frontmatter and body')
+  .option('--limit <n>', `results to show (default ${DEFAULT_LIMIT})`, (value: string) =>
+    Number.parseInt(value, 10))
+  .action(function (this: Command, query: string, options) {
+    // Unlike the other read commands this one requires a real bundle rather than
+    // falling back to the cwd: searching whatever directory you happen to be in
+    // returns a confident empty result, which reads as "the bundle knows nothing".
+    exit(runSearch({ bundle: writeBundleDir(this), query, ...options }));
   });
 
 program
