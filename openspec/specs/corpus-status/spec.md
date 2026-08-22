@@ -71,7 +71,15 @@ inbox and restoring the unsegregated view.
 #### Scenario: Drilling into the inbox
 
 - **WHEN** the caller asks for the drafts inbox
-- **THEN** the concepts in the drafts area are listed with their capture dates
+- **THEN** the concepts in the drafts area are listed with their capture dates and their
+  titles, because a captured concept's id is generated rather than descriptive and a
+  listing of ids alone could not be read
+
+#### Scenario: A concept with no title
+
+- **WHEN** a listed concept declares no title
+- **THEN** the listing falls back to its filename stem rather than leaving the column empty
+  (SPEC §4.1)
 
 #### Scenario: Restoring the unsegregated view
 
