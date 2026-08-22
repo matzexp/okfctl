@@ -105,3 +105,26 @@ test('an overridden drafts area is what gets segregated', () => {
   // drafts/ is now ordinary corpus, so it is back in the attention list.
   assert.match(out, /drafts\/retry-budget/);
 });
+
+test('--drafts lists titles, because generated ids cannot be read', () => {
+  const root = sandbox();
+  const { out } = captured(() => runStatus({ bundle: root, drafts: true }));
+  assert.match(out, /TITLE/);
+  assert.match(out, /Gateway timeout defaults are per-route/);
+  assert.match(out, /Retry budgets are shared across a service/);
+  assert.match(out, /CAPTURED/);
+});
+
+test('a concept with no title falls back to its filename stem', () => {
+  const root = sandbox();
+  writeFileSync(join(root, 'drafts/2026-08-22-abcdefgh-1.md'), '---\ntype: Note\n---\n\nbody\n');
+  const { out } = captured(() => runStatus({ bundle: root, drafts: true }));
+  assert.match(out, /2026-08-22-abcdefgh-1/, 'the stem stands in (SPEC 4.1)');
+});
+
+test('the default attention list keeps its columns', () => {
+  const root = sandbox();
+  const { out } = captured(() => runStatus({ bundle: root }));
+  assert.match(out, /ID\s+STATUS\s+TRUST\s+FLAGS/);
+  assert.doesNotMatch(out, /CAPTURED/, 'the title column is added only where ids are generated');
+});

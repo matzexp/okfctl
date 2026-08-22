@@ -90,7 +90,9 @@ export function runStatus(options: StatusOptions): number {
     console.log(dim('No concepts match those filters.'));
     return 0;
   }
-  printRows(filtered);
+  // A captured concept's id is generated, so the inbox listing has to carry the
+  // title — a column of dates and sequence numbers could not be read.
+  printRows(filtered, options.drafts === true);
   return 0;
 }
 
@@ -154,14 +156,29 @@ function printSummary(rows: Row[]): void {
   ]));
 }
 
-function printRows(rows: Row[]): void {
+/**
+ * The attention list keeps its four columns: a corpus concept's id is meaningful
+ * by construction and often says more than its title would. The title is added
+ * only where ids are generated, which is the drafts inbox.
+ */
+function printRows(rows: Row[], withTitle = false): void {
+  if (!withTitle) {
+    const body = rows.map((row) => [
+      cyan(row.id),
+      row.status,
+      tierColor(row.tier)(row.tier),
+      row.flags.filter((flag) => flag !== 'draft' && flag !== 'unverified').join(', '),
+    ]);
+    console.log(table([[dim('ID'), dim('STATUS'), dim('TRUST'), dim('FLAGS')], ...body]));
+    return;
+  }
+
   const body = rows.map((row) => [
     cyan(row.id),
-    row.status,
-    tierColor(row.tier)(row.tier),
-    row.flags.filter((flag) => flag !== 'draft' && flag !== 'unverified').join(', '),
+    row.captured ? row.captured.slice(0, 10) : dim('—'),
+    row.title,
   ]);
-  console.log(table([[dim('ID'), dim('STATUS'), dim('TRUST'), dim('FLAGS')], ...body]));
+  console.log(table([[dim('ID'), dim('CAPTURED'), dim('TITLE')], ...body]));
 }
 
 function tierColor(tier: TrustTier): (text: string) => string {

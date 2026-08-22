@@ -155,11 +155,54 @@ content, and it does so only by copying bytes it was handed — no templating, n
 capture is frequent and automatic, so a wrong default would be wrong at scale rather than
 once.
 
+### The id is generated, not derived from the title
+
+```
+drafts/2026-08-22-45fcb979-1.md
+```
+
+The date sorts, the session prefix groups a conversation's captures, and the sequence makes
+a collision arithmetically impossible.
+
+Deriving the id from the title looked obvious and was wrong three ways. It is **discarded**:
+of the first ten captures filed out of a real bundle, nine were renamed on the way into the
+corpus. It **throws away work**: a second capture whose title slugified the same was refused,
+so the agent lost the summary it had just written — refusing is right for `new`, which is
+protecting an existing concept, but here there is nothing to protect. And it **hardens a
+guess**: a concept's id is its bundle-relative path (SPEC §2), so a title chosen in one line
+became the string every link and index entry referred to.
+
+**The sequence is read off the disk**, not from the hook's per-session state. A capture run
+by hand, in a session where the hook never fired, or after the state directory was pruned
+would otherwise pick a sequence already taken. Reading the bundle makes the bundle the only
+thing that has to be correct, which is also what makes a retry idempotent.
+
+**A missing session is labelled, never fabricated.** Without `--session` the id reads
+`2026-08-22-adhoc-1` and no session is recorded at all. Generating a random identifier and
+presenting it as a session would look exactly like a real one in provenance — the specific
+failure `new`'s "never invent" rule is about — and the sequence already guarantees
+uniqueness, so nothing is bought by faking it.
+
+**The scheme applies wherever the capture lands.** `--to` changes the directory, not the
+naming, because a rule with an exception is a rule callers get wrong. `--id` is the single
+way to say "I have decided this name", and an `--id` already taken still refuses.
+
+Consequence: the id no longer reads as words, so `okfctl status --drafts` prints the title.
+That column is added there and nowhere else — a corpus concept's id is meaningful by
+construction and often says more than its title would.
+
 **Origin goes in `sources[]`.** A bundle collecting knowledge out of a dozen repositories
 loses the context a reader most needs without it, and §5.1 is where provenance already goes.
 Outside a repository the remote and commit are omitted rather than guessed; capturing from
 inside the target bundle records nothing, because a concept does not cite the bundle it
 lives in.
+
+The **session** goes there too, as a second entry. The filename carries eight characters of
+it and the filename does not survive promotion — that is the premise of the scheme above —
+so the durable record has to be in frontmatter. A top-level `session:` key would have been
+legal under §11's tolerance for unknown keys, but a key only `okfctl` reads is a signal no
+other consumer can act on, which is the same argument that kept `review --outdated` from
+inventing a field.
 
 ### The drafts area
 

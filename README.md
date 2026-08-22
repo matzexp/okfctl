@@ -92,8 +92,11 @@ okfctl init --agent claude-code --capture-every 5 -n     # preview, prompting ev
 ```
 
 Captured knowledge lands in `drafts/` as a conformant concept — `status: draft`, no
-`verified`, the agent recorded as its producer, and the repository it came from recorded in
-`sources[]`. It is usable and findable, but nobody has vouched for it. A human empties the
+`verified`, the agent recorded as its producer, and the repository and session it came from
+recorded in `sources[]`. Its id is generated as `<date>-<session>-<n>`
+(`drafts/2026-08-22-45fcb979-1.md`): the date sorts, the session groups a conversation's
+captures, and the sequence means a capture can never collide with — and so never destroy —
+one already there. Read the inbox with `okfctl status --drafts`, which prints titles. It is usable and findable, but nobody has vouched for it. A human empties the
 inbox later with `okfctl move`, or by merging it into a concept that already exists.
 
 ### Which bundle a command acts on
@@ -141,7 +144,8 @@ okfctl catalog --check                # CI: fail when catalog.md has drifted
 okfctl init --register                              # register this bundle
 okfctl init --agent codex --capture-every 5         # prompt every 5th turn
 okfctl init --agent codex --remove                  # take back exactly what was installed
-okfctl capture --title "..." --by agent/1.0 --stdin # capture a body from stdin
+okfctl capture --title "..." --by agent/1.0 --session <id> --stdin
+okfctl capture --title "..." --by agent/1.0 --id chosen-name --stdin  # name it yourself
 okfctl status --drafts                # drill into the inbox
 okfctl status --all                   # put drafts back in the attention list
 okfctl move drafts/x decisions/x --by human:me      # empty the inbox

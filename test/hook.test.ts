@@ -180,15 +180,19 @@ test('end to end: a hook prompt in an unrelated repo captures into the registere
     by: 'claude-code/2.1',
     body: 'The edge gateway applies its timeout per route.',
     from: work,
+    // The agent passes the session the hook reported, which the id groups on.
+    session: 'e2e',
+    now: new Date('2026-08-22T09:00:00Z'),
   }));
   assert.equal(code, 0);
 
-  const file = join(bundle, 'drafts', 'timeouts-are-per-route.md');
+  const file = join(bundle, 'drafts', '2026-08-22-e2e-1.md');
   assert.ok(existsSync(file), 'the capture lands in the registered bundle');
   const raw = readFileSync(file, 'utf8');
   assert.match(raw, /^status: draft$/m);
   assert.match(raw, /generated: \{ by: claude-code\/2\.1/);
   assert.match(raw, /git@example\.com:acme\/payments-api\.git@[0-9a-f]{7}/, 'the origin repo is recorded');
+  assert.match(raw, /id: session/, 'and the session that produced it');
   assert.equal(countBy(checkBundle(loadBundle(bundle)), 'error'), 0);
 });
 

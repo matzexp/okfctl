@@ -1,10 +1,10 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { loadBundle } from '../core/bundle.ts';
 import { commit } from '../core/commit.ts';
 import { createConcept, serializeConcept } from '../core/concept.ts';
 import { resolveDraftsDir } from '../core/drafts.ts';
-import { ACTOR_FORMS, isValidActor } from '../core/lifecycle.ts';
+import { ACTOR_FORMS, isValidActor, isoDay } from '../core/lifecycle.ts';
 import { originSource, readOrigin } from '../core/origin.ts';
 import { cyan, dim, green, red } from '../core/term.ts';
 
@@ -29,7 +29,10 @@ export interface CaptureOptions {
   stdin?: boolean;
   to?: string;
   id?: string;
+  session?: string;
   from?: string;
+  /** Capture date, overridable so tests do not depend on today. */
+  now?: Date;
   noOrigin?: boolean;
   dryRun?: boolean;
   noLog?: boolean;
@@ -67,12 +70,19 @@ export function runCapture(options: CaptureOptions): number {
   }
 
   const dir = options.to?.trim().replace(/^\.?\//, '').replace(/\/+$/, '') || draftsDir;
-  const slug = (options.id?.trim() || slugify(title)).replace(/^\.?\//, '').replace(/\.md$/i, '');
-  if (!slug) {
-    console.error(red(`cannot derive an id from "${title}"; pass --id`));
+
+  // An explicit id says "I have decided this name"; anything else is generated.
+  // A title chosen in one line is a poor thing to harden into a path every link
+  // and index entry will use (SPEC §2).
+  const explicit = options.id?.trim()
+    ? slugify(options.id.trim().replace(/^\.?\//, '').replace(/\.md$/i, ''))
+    : null;
+  if (options.id?.trim() && !explicit) {
+    console.error(red(`"${options.id}" does not reduce to a usable id`));
     return 1;
   }
 
+  const slug = explicit ?? generateId(bundle.root, dir, options.session, options.now);
   const id = dir ? `${dir}/${slug}` : slug;
   const file = join(bundle.root, `${id}.md`);
   const rel = relative(bundle.root, file);
@@ -86,9 +96,11 @@ export function runCapture(options: CaptureOptions): number {
     return 1;
   }
 
+  // An explicit id names a specific concept, and overwriting one is never right.
+  // A generated id cannot get here — the sequence is taken from what is on disk.
   if (existsSync(file)) {
     console.error(red(`${id}.md already exists`));
-    console.error(dim('okfctl never overwrites a concept; pass --id to pick another'));
+    console.error(dim('okfctl never overwrites a concept; pass a different --id'));
     return 1;
   }
 
@@ -108,6 +120,10 @@ export function runCapture(options: CaptureOptions): number {
   const within = relative(bundle.root, from);
   const insideBundle = within === '' || (!within.startsWith('..') && !isAbsolute(within));
   const origin = options.noOrigin === true || insideBundle ? null : originSource(readOrigin(from));
+  // The filename carries eight characters of the session and the filename does not
+  // survive promotion, so the durable record goes where §5.1 already puts provenance.
+  const session = sessionSource(options.session);
+  const sources = [origin, session].filter((entry) => entry !== null);
 
   const concept = createConcept(
     file,
@@ -119,7 +135,7 @@ export function runCapture(options: CaptureOptions): number {
       ['tags', options.tags?.length ? options.tags : undefined],
       ['status', 'draft'],
       ['generated', { by, at }],
-      ['sources', origin ? [origin] : undefined],
+      ['sources', sources.length > 0 ? sources : undefined],
     ],
     body,
   );
@@ -136,6 +152,7 @@ export function runCapture(options: CaptureOptions): number {
       `type: ${type}${options.type ? '' : ' (provisional)'}   status: draft`,
       `generated = { by: ${by}, at: ${at} }`,
       origin ? `origin: ${origin.resource ?? origin.title}` : null,
+      session ? `session: ${session.resource}` : null,
     ],
     dryRun: options.dryRun === true,
     noLog: options.noLog === true,
@@ -160,14 +177,71 @@ function readBody(options: CaptureOptions): string {
   return text.startsWith('\n') ? text : `\n${text}`;
 }
 
-/** `Envoy replaces Traefik at the edge` -> `envoy-replaces-traefik-at-the-edge`. */
-export function slugify(title: string): string {
-  return title
+/**
+ * The label used in a generated id when no session was supplied. A fixed
+ * stand-in, not a generated identifier: something that looked like a session id
+ * but was not one would be a false claim in a field other tools read, and the
+ * sequence already guarantees uniqueness without it.
+ */
+export const NO_SESSION_LABEL = 'adhoc';
+
+/** How much of a session id goes into a filename. A grouping label, not a key. */
+const SESSION_PREFIX = 8;
+
+/**
+ * `<YYYY-MM-DD>-<session8>-<n>`: the date sorts, the session groups, the
+ * sequence makes a collision arithmetically impossible.
+ *
+ * The sequence is read from the target directory rather than from the hook's
+ * per-session state, so a capture run by hand — or after the state directory was
+ * pruned — still picks a free id. The bundle is then the only thing that has to
+ * be correct, which is also what makes a retry idempotent.
+ */
+export function generateId(root: string, dir: string, session?: string, now = new Date()): string {
+  const label = sessionLabel(session);
+  const stem = `${isoDay(now)}-${label}`;
+  const target = dir ? join(root, dir) : root;
+
+  let highest = 0;
+  if (existsSync(target)) {
+    const pattern = new RegExp(`^${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-(\\d+)\\.md$`);
+    for (const name of readdirSync(target)) {
+      const match = pattern.exec(name);
+      if (match) highest = Math.max(highest, Number(match[1]));
+    }
+  }
+  return `${stem}-${highest + 1}`;
+}
+
+export function sessionLabel(session?: string): string {
+  const cleaned = slugify(session ?? '');
+  return cleaned ? cleaned.replace(/-/g, '').slice(0, SESSION_PREFIX) : NO_SESSION_LABEL;
+}
+
+/** The `sources[]` entry for the producing session, or null when none is known. */
+export function sessionSource(session?: string): Record<string, string> | null {
+  const value = session?.trim();
+  if (!value) return null;
+  return { id: 'session', title: 'agent session', resource: value };
+}
+
+/**
+ * Reduce a string to the bundle's id style. Only an explicit `--id` reaches this
+ * now — titles no longer produce ids. Long input is cut on a hyphen boundary
+ * rather than mid-word, which is what turned one capture into `...-and-histogra`.
+ */
+export function slugify(text: string): string {
+  const full = text
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 72)
-    .replace(/-+$/, '');
+    .replace(/^-+|-+$/g, '');
+
+  if (full.length <= MAX_ID) return full;
+  const cut = full.slice(0, MAX_ID + 1);
+  const boundary = cut.lastIndexOf('-');
+  return (boundary > 0 ? cut.slice(0, boundary) : full.slice(0, MAX_ID)).replace(/-+$/, '');
 }
+
+const MAX_ID = 72;
