@@ -65,6 +65,24 @@ npm run dev -- status --bundle path/to/bundle
 
 ## Quick start
 
+### Initialize a bundle
+
+```bash
+okfctl init path/to/bundle          # scaffold a new, empty bundle
+okfctl init path/to/bundle -n       # preview first: list what would be created
+```
+
+This creates the three things an OKF bundle needs to exist at all: `index.md` (the
+bundle-root index, SPEC §3.1), `log.md` (the dated activity log, SPEC §9), and an empty
+`drafts/` directory for low-ceremony capture. Nothing else — no example concepts, no
+directory layout beyond that, because the spec does not prescribe one and `okfctl` does
+not invent conventions for a bundle to grow into on its own. Run it again against an
+existing bundle and it reports what already exists rather than overwriting it — `init` is
+idempotent.
+
+Point every other command at it with `--bundle`, or skip the flag once you have registered
+it (see [Capturing from a session](#capturing-from-a-session) below) or `cd`'d into it.
+
 ```bash
 # Point it at a bundle and see what needs attention
 okfctl status --bundle path/to/bundle
@@ -303,10 +321,11 @@ conformant first concept.
 
 ## Agent skills
 
-The CLI knows *how* to make each change. The skills in [`.claude/skills/`](.claude/skills/)
-know *when*. Each is invocable in Claude Code by name as `/okf:<name>`, or selected from its
-description. `okfctl init --agent <host>` installs them — capture at user scope, the rest
-into your bundle.
+The CLI knows *how* to make each change. The skills in [`skills/`](skills/), with their
+slash-command wrappers in [`commands/okf/`](commands/okf/), know *when*. Each is host-neutral —
+one `SKILL.md` per skill, placed into a host's own directory layout at install time — and
+invocable in Claude Code by name as `/okf:<name>`, or selected from its description.
+`okfctl init --agent <host>` installs them — capture at user scope, the rest into your bundle.
 
 | Skill | For |
 |---|---|
