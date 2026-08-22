@@ -7,7 +7,7 @@
     "okfctl": "dist/cli.js",
     "okf": "dist/cli.js"
   },
-  "files": ["dist", ".claude/skills/okf-*/**", ".claude/commands/okf"],
+  "files": ["dist", "skills", "commands"],
   "engines": { "node": ">=20.19.0" },
   "scripts": {
     "build": "tsc",

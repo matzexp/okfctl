@@ -5,10 +5,16 @@ import { fileURLToPath } from 'node:url';
 /**
  * The skills shipped with okfctl, read from the package rather than generated.
  *
- * They are real files under `.claude/` in the repository, which is what makes
- * them editable, reviewable in a diff, and loaded when working on okfctl itself.
- * Generating a second copy inside the installer would give the suite two sources
- * that drift apart.
+ * They are real files in the repository, which is what makes them editable and
+ * reviewable in a diff. Generating a second copy inside the installer would give
+ * the suite two sources that drift apart.
+ *
+ * They live under host-neutral `skills/` and `commands/`, not under any host's
+ * own directory. One `SKILL.md` is written once and placed per host by
+ * `SkillLayout`, so the canonical copy belongs somewhere no host reads: a source
+ * kept in a directory a host also loads from is one nobody can tell is the
+ * source. The cost is that okfctl's own sessions do not auto-load the curation
+ * skills, which is right — curation happens in a bundle, not in this repo.
  */
 
 /** Capture works from any repository, so it installs at user scope. */
@@ -33,7 +39,7 @@ export function packageRoot(): string {
 }
 
 function sourceDir(): string {
-  return join(packageRoot(), '.claude');
+  return packageRoot();
 }
 
 export function readSkill(name: string): string {
