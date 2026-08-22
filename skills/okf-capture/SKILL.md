@@ -18,12 +18,35 @@ placement you already know; this is for knowledge you have and cannot yet file.
 
 1. **Decide whether there is anything to capture**
 
-   Durable knowledge outlives the session: a decision and the reasoning behind it, an
-   incident and its cause, a constraint that was not obvious, a correction to something the
-   team believed, a measurement nobody will repeat.
+   Durable knowledge outlives the session because the next reader cannot re-derive it from
+   the repository, the ticket, or common sense. Ask, for each candidate: if an agent picked
+   up this bundle cold in a week, would they need to be told this, and could they not get it
+   any other way? Concretely:
+
+   - **A decision and why**, when "why" required weighing options a reader would otherwise
+     re-litigate — not "we chose Postgres" but the constraint that ruled out the alternative.
+   - **A root cause**, when finding it took real investigation — the actual mechanism, named
+     precisely (the component, the exact condition, the version), not "there was a bug".
+   - **A non-obvious constraint or gotcha**, especially one that looks like it should work
+     and does not — an API contract that is narrower than it appears, an ordering requirement,
+     a flag that silently changes behavior elsewhere.
+   - **A correction to a standing belief**, when something the team or the docs assumed
+     turns out to be false, and someone will act on the old belief again if it is not written
+     down.
+   - **A measurement**, when it took work to produce and would take the same work to
+     reproduce — a benchmark, an audit count, a reduction percentage — recorded with its
+     exact conditions (the window, the version, the environment), not just the headline number.
+   - **A reusable procedure**, when a sequence of steps was worked out under real constraints
+     (ordering, rollback points, what to verify before proceeding) and getting it wrong is
+     costly enough that the next person should follow the worked-out order rather than
+     reinvent it.
+   - **A negative result**, when an approach was tried and specifically ruled out — this
+     saves the next session from repeating the same dead end, and is easy to skip because it
+     feels like "nothing happened."
 
    Not durable: what you did, which files you edited, what the user asked for, or anything
-   the repository already records. A restatement of code is not knowledge about it.
+   the repository already records at a glance. A restatement of code is not knowledge about
+   it — knowledge is the part that is not visible by reading the code.
 
    **If nothing qualifies, write nothing and say so in one line.** Declining is the right
    answer more often than not. An inbox of noise is worse than an empty one, and every
@@ -38,11 +61,26 @@ placement you already know; this is for knowledge you have and cannot yet file.
 
 3. **Write the summary, not the transcript**
 
-   A reader who was not in the session must be able to act on it. State what is true and
-   why it is true; leave out the conversation that got there. If the finding rests on
-   something checkable, name it.
+   A reader who was not in the session must be able to act on it without asking a follow-up
+   question or re-deriving anything you already worked out. State what is true and why it
+   is true; leave out the conversation that got there — not the back-and-forth, not what was
+   tried before the working answer, not the tool calls.
 
-   Two or three paragraphs is usually right. A dump nobody can read is not knowledge.
+   Be specific rather than general. Name the exact component, version, file, flag, error
+   message, or command involved — "the CSI driver" is weaker than "truenas-csi-iscsi v1.0.2";
+   "the audit volume dropped a lot" is weaker than "120,116 records fell to 11,849 over
+   matched 10-minute windows." A future session cannot act on a vague claim, only verify or
+   apply a precise one. Where the finding rests on something checkable — a command, a query,
+   a log window, a file — name it exactly enough that someone could rerun it.
+
+   Include the scope and the caveats, not just the headline: what was and was not verified,
+   what remains unexplained, what would break this conclusion if it changed (a version
+   bump, a config default, an environment difference). A summary that omits its own limits
+   reads as more certain than it is, and the next reader inherits that false confidence.
+
+   Length follows completeness, not the reverse — do not pad, but do not trim a caveat or a
+   concrete number to hit a target length. A dump nobody can read is not knowledge, and
+   neither is one that reads clean but leaves out the detail the next session needed.
 
 4. **Capture it**
 
