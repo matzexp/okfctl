@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, join, normalize, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import type { Concept } from './concept.ts';
 import type { Diagnostic } from './check.ts';
 
@@ -324,4 +324,105 @@ export function checkRefs(concept: Concept, context: RefsContext = {}): Diagnost
   }
 
   return found;
+}
+
+// --- relocation support -----------------------------------------------------
+
+export interface LinkSpan {
+  /** The raw target as written, e.g. `../metrics/revenue.md#definition`. */
+  target: string;
+  path: string;
+  fragment: string | null;
+  /** Offset of the target within the concept body. */
+  start: number;
+  end: number;
+  /** Bundle-relative path this resolved to, or null when it resolved to nothing. */
+  resolvesTo: string | null;
+}
+
+/**
+ * The links in a body, each with the offset of its target. `stripCode` blanks
+ * code with spaces rather than removing it, so offsets into the stripped body
+ * are offsets into the original — which is what makes a targeted rewrite safe:
+ * a path inside a shell sample is never seen, and prose is never touched.
+ */
+export function readLinkSpans(concept: Concept, context: RefsContext = {}): LinkSpan[] {
+  const spans: LinkSpan[] = [];
+  const stripped = stripCode(concept.body);
+
+  for (const match of stripped.matchAll(LINK)) {
+    const target = match[1];
+    if (!target || EXTERNAL.test(target)) continue;
+
+    // Locate the capture group inside the whole match rather than searching the
+    // body, so a repeated target resolves to the right occurrence.
+    const offset = match.index + match[0].lastIndexOf(target);
+    const hash = target.indexOf('#');
+    const raw = {
+      target,
+      path: hash === -1 ? target : target.slice(0, hash),
+      fragment: hash === -1 ? null : target.slice(hash + 1) || null,
+    };
+    const resolved = context.root ? resolveLink(raw, concept, { root: context.root }) : null;
+    spans.push({
+      ...raw,
+      start: offset,
+      end: offset + target.length,
+      resolvesTo: resolved?.state === 'resolved' || resolved?.state === 'anchor-missing'
+        ? resolved.resolvesTo
+        : null,
+    });
+  }
+  return spans;
+}
+
+export interface InboundLink {
+  concept: Concept;
+  span: LinkSpan;
+}
+
+/**
+ * Every link in the bundle that currently resolves to `targetPath`, a
+ * bundle-relative path such as `drafts/gateway.md`. Only resolved links are
+ * reported: a link that was already broken is not a relocation's to guess at,
+ * and rewriting it would hide a defect `refs` exists to surface.
+ */
+export function inboundLinks(
+  concepts: Concept[],
+  targetPath: string,
+  root: string,
+): InboundLink[] {
+  const found: InboundLink[] = [];
+  for (const concept of concepts) {
+    for (const span of readLinkSpans(concept, { root })) {
+      if (span.resolvesTo === targetPath) found.push({ concept, span });
+    }
+  }
+  return found;
+}
+
+/**
+ * Rewrite one link target so it addresses `toPath` instead, keeping the form the
+ * author used. A root-absolute link stays root-absolute; a relative one is
+ * recomputed from the linking document's directory. The fragment rides along
+ * untouched — a heading is not this operation's business.
+ */
+export function retargetLink(span: LinkSpan, fromFile: string, root: string, toPath: string): string {
+  const fragment = span.fragment ? `#${span.fragment}` : '';
+  if (span.path.startsWith('/')) return `/${toPath}${fragment}`;
+
+  const rel = relative(dirname(fromFile), join(root, toPath)).split(/[\\/]/).join('/');
+  return `${rel.startsWith('.') ? rel : `./${rel}`}${fragment}`;
+}
+
+/** Apply span rewrites to a body, right to left so earlier offsets stay valid. */
+export function applyLinkRewrites(
+  body: string,
+  edits: { span: LinkSpan; replacement: string }[],
+): string {
+  let out = body;
+  for (const edit of [...edits].sort((a, b) => b.span.start - a.span.start)) {
+    out = out.slice(0, edit.span.start) + edit.replacement + out.slice(edit.span.end);
+  }
+  return out;
 }

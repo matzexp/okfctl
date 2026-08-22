@@ -1,11 +1,22 @@
-# corpus-status Specification
+## ADDED Requirements
 
-## Purpose
+### Requirement: The Drafts Inbox
 
-Summarize the health of a bundle — trust tiers, lifecycle states, staleness, and drift —
-and narrow that summary to the concepts that need a maintainer's attention.
+The system SHALL report the drafts area as its own group, naming how many concepts it
+holds and the age of the oldest one, on every run that is not narrowed by a filter.
 
-## Requirements
+#### Scenario: The inbox is always visible
+
+- **WHEN** the drafts area holds captured concepts
+- **THEN** the summary names the count and the age of the oldest capture, so an inbox that
+  is never emptied cannot become invisible
+
+#### Scenario: An empty inbox
+
+- **WHEN** the drafts area is empty or absent
+- **THEN** no inbox line is printed
+
+## MODIFIED Requirements
 
 ### Requirement: Health Summary
 
@@ -95,29 +106,3 @@ concepts are in the drafts area.
 - **WHEN** the caller passes `--json` on a bundle with a populated drafts area
 - **THEN** each record carries whether that concept is in the drafts area, and the drafts
   area's path is reported alongside the bundle root
-
-### Requirement: Advisory Exit Code
-
-The system SHALL exit zero regardless of what it finds, because reporting corpus health is
-not a conformance judgement.
-
-#### Scenario: An unhealthy bundle still exits zero
-
-- **WHEN** every concept in the bundle is stale, drifted, and unverified
-- **THEN** the command exits zero
-
-### Requirement: The Drafts Inbox
-
-The system SHALL report the drafts area as its own group, naming how many concepts it
-holds and the age of the oldest one, on every run that is not narrowed by a filter.
-
-#### Scenario: The inbox is always visible
-
-- **WHEN** the drafts area holds captured concepts
-- **THEN** the summary names the count and the age of the oldest capture, so an inbox that
-  is never emptied cannot become invisible
-
-#### Scenario: An empty inbox
-
-- **WHEN** the drafts area is empty or absent
-- **THEN** no inbox line is printed

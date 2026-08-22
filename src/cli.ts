@@ -4,10 +4,16 @@ import { runCheck } from './commands/check.ts';
 import { runStatus } from './commands/status.ts';
 import { runPromote, runDeprecate } from './commands/transition.ts';
 import { runNew } from './commands/new.ts';
+import { runCapture } from './commands/capture.ts';
+import { runMove } from './commands/move.ts';
+import { runInit } from './commands/init.ts';
+import { runHook } from './commands/hook.ts';
 import { runReview } from './commands/review.ts';
 import { runIndex } from './commands/index-gen.ts';
 import { runCatalog } from './commands/catalog.ts';
 import { runRefs } from './commands/refs.ts';
+import { DEFAULT_DRAFTS_DIR } from './core/drafts.ts';
+import { requireBundleDir, resolveBundleDir } from './core/userconfig.ts';
 import { red } from './core/term.ts';
 
 const program = new Command();
@@ -16,10 +22,18 @@ program
   .name('okfctl')
   .description('Lifecycle tooling for Open Knowledge Format (OKF) v0.2 bundles')
   .version('0.1.0')
-  .option('-b, --bundle <dir>', 'path to the bundle root', '.');
+  .option('-b, --bundle <dir>', 'path to the bundle root')
+  .option('--drafts-dir <dir>', 'bundle-relative drafts area', DEFAULT_DRAFTS_DIR);
 
 const bundleDir = (command: Command): string =>
-  (command.optsWithGlobals().bundle as string) ?? '.';
+  (command.optsWithGlobals().bundle as string | undefined) ?? resolveBundleDir();
+
+/** For verbs that write: no silent fallback to the working directory. */
+const writeBundleDir = (command: Command): string =>
+  (command.optsWithGlobals().bundle as string | undefined) ?? requireBundleDir();
+
+const draftsDir = (command: Command): string =>
+  (command.optsWithGlobals().draftsDir as string) ?? DEFAULT_DRAFTS_DIR;
 
 program
   .command('check')
@@ -38,9 +52,11 @@ program
   .option('--drifted', 'only concepts edited since their last verification')
   .option('--draft', 'only draft concepts')
   .option('--unverified', 'only concepts with no verified entry')
+  .option('--drafts', 'only the drafts inbox')
+  .option('--all', 'include drafts-area concepts in the attention list')
   .option('--json', 'machine-readable output')
   .action(function (this: Command, options) {
-    exit(runStatus({ bundle: bundleDir(this), ...options }));
+    exit(runStatus({ bundle: bundleDir(this), draftsDir: draftsDir(this), ...options }));
   });
 
 program
@@ -59,6 +75,73 @@ program
   .option('-n, --dry-run', 'show what would be written without writing it')
   .action(function (this: Command, path: string, options) {
     exit(runNew(path, { bundle: bundleDir(this), ...options, noLog: options.log === false }));
+  });
+
+program
+  .command('init [dir]')
+  .description('scaffold a bundle, register it as this machine\'s knowledge base, wire an agent')
+  .option('--register', 'record this bundle as the knowledge base captures default to')
+  .option('--agent <host>', 'wire a coding agent to it; repeatable', (value: string, all: string[] = []) =>
+    [...all, value], [] as string[])
+  .option('--capture-every <n>', 'hold a turn open every nth turn (default 1)', (value: string) =>
+    Number.parseInt(value, 10), 1)
+  .option('--remove', 'with --agent, take back exactly what was installed')
+  .option('-n, --dry-run', 'list every path it would create or edit without writing')
+  .action(function (this: Command, dir: string | undefined, options) {
+    exit(runInit(dir ?? '.', { draftsDir: draftsDir(this), ...options }));
+  });
+
+program
+  .command('hook <host>', { hidden: true })
+  .description('capture hook; invoked by an agent, not by hand')
+  .option('--every <n>', 'prompt every nth completed turn', (value: string) =>
+    Number.parseInt(value, 10), 1)
+  .action(function (this: Command, _host: string, options) {
+    exit(runHook({ every: options.every }));
+  });
+
+program
+  .command('capture')
+  .description('capture knowledge into the drafts area with the placement deferred')
+  .requiredOption('--title <text>', 'what was established, as a sentence')
+  .requiredOption('--by <actor>', 'producing actor (SPEC 7); never guessed')
+  .option('--type <type>', 'concept type; defaults to a provisional one (SPEC 4.1)')
+  .option('--description <text>', 'one-line summary')
+  .option('--tags <list>', 'comma-separated tags', (value: string) =>
+    value.split(',').map((tag) => tag.trim()).filter(Boolean))
+  .option('--body <text>', 'the body, written verbatim')
+  .option('--stdin', 'read the body from standard input')
+  .option('--to <dir>', 'target directory instead of the drafts area')
+  .option('--id <slug>', 'id instead of one derived from the title')
+  .option('--from <dir>', 'working directory recorded as the origin', process.cwd())
+  .option('--no-origin', 'do not record where the capture came from')
+  .option('--no-log', 'skip the log.md entry')
+  .option('-n, --dry-run', 'show what would be written without writing it')
+  .action(function (this: Command, options) {
+    exit(runCapture({
+      bundle: writeBundleDir(this),
+      draftsDir: draftsDir(this),
+      ...options,
+      noOrigin: options.origin === false,
+      noLog: options.log === false,
+    }));
+  });
+
+program
+  .command('move <from> <to>')
+  .description('relocate a concept, carrying its inbound links, indexes and log with it')
+  .requiredOption('--by <actor>', 'actor performing the relocation (SPEC 7)')
+  .option('--reason <text>', 'recorded in the log entry')
+  .option('--no-log', 'skip the log.md entry')
+  .option('--no-index', 'skip regenerating the affected index.md files')
+  .option('-n, --dry-run', 'show the move, the link rewrites and the indexes without writing')
+  .action(function (this: Command, from: string, to: string, options) {
+    exit(runMove(from, to, {
+      bundle: writeBundleDir(this),
+      ...options,
+      noLog: options.log === false,
+      noIndex: options.index === false,
+    }));
   });
 
 program

@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { CATALOG, loadBundle, type Bundle } from '../core/bundle.ts';
 import { conceptTitle, parseConcept, type Concept } from '../core/concept.ts';
 import { conceptStatus } from '../core/lifecycle.ts';
@@ -53,6 +53,34 @@ export function runIndex(options: IndexOptions): number {
 
   console.log(written === 0 ? dim('nothing to do') : `\n${written} file${written === 1 ? '' : 's'} written`);
   return 0;
+}
+
+/**
+ * Regenerate a named subset of a bundle's index files. `move` touches exactly two
+ * directories, and rewriting every index in the bundle to reflect that would put
+ * unrelated churn in the diff a reviewer has to read.
+ *
+ * Returns the bundle-relative paths written. A named directory that holds nothing
+ * renders to null and is skipped; one that holds concepts but has no `index.md`
+ * yet gets one.
+ */
+export function regenerateIndexes(
+  bundle: Bundle,
+  dirs: string[],
+  includeDeprecated = false,
+): string[] {
+  const written: string[] = [];
+  for (const dir of [...new Set(dirs)].sort()) {
+    const generated = renderIndex(bundle, dir, includeDeprecated);
+    const file = join(bundle.root, dir, 'index.md');
+    if (generated === null) continue;
+    const current = existsSync(file) ? readFileSync(file, 'utf8') : null;
+    if (current === generated) continue;
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, generated);
+    written.push(dir ? `${dir}/index.md` : 'index.md');
+  }
+  return written;
 }
 
 /** Every directory holding at least one concept, plus their ancestors. */

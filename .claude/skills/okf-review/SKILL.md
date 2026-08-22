@@ -84,6 +84,44 @@ reader relies on.
    Per concept: the finding, what you checked it against, and what was written. Then the
    backlog that remains, and the concepts nobody could verify.
 
+6. **Emptying the drafts inbox**
+
+   A concept in the drafts area is a different backlog. It is not stale or drifted — it was
+   never placed, and its type is a guess. `okfctl status` reports it as an inbox rather than
+   as attention; `okfctl status --drafts` lists it.
+
+   Reviewing one has two outcomes that empty it, and you must not choose between them
+   silently. Show the user the draft and both options.
+
+   **It is knowledge in its own right** → relocate it.
+
+   ```bash
+   okfctl move drafts/<id> <dir>/<id> --by human:<you> --reason "<why here>"
+   ```
+
+   Set a real type first — a bundle full of the provisional type teaches nothing, and the
+   move is the moment that answer is due. The type change is a frontmatter edit, so it goes
+   through the CLI, not by hand: there is no verb for it, so `okfctl new` the corrected
+   document only if the body is being rewritten anyway; otherwise raise it with the user.
+
+   `move` carries the inbound links, both indexes and the log with it. Relocation is **not**
+   promotion: the concept is still a draft, and `okf-promote` is still the act that says
+   someone vouched for it.
+
+   **It belongs inside a concept that already exists** → merge it.
+
+   Read both, fold the content into the existing concept by editing its body, and log the
+   merge. Then remove the draft — confirm with the user before deleting, and show what was
+   folded in.
+
+   A merged draft is **removed, not deprecated**. Deprecation is for knowledge that was true
+   and stopped being so; a dump folded into another document was never knowledge in its own
+   right. Run `okfctl refs --broken` afterwards to catch anything that linked to it.
+
+   **Neither fits** — an unintelligible draft, or one whose accuracy you cannot establish —
+   leave it where it is and say so. Filing material you cannot vouch for is worse than an
+   inbox that is one item longer.
+
 **Guardrails**
 - Never `--confirm` a concept you have not actually checked against something. A
   verification entry is a durable claim that someone did.
@@ -94,3 +132,7 @@ reader relies on.
 - Confirmation does not change `status`. If a draft should also become stable, that is
   `okf-promote` — say so rather than doing it silently.
 - Preview the whole batch before the first write.
+- Never delete a draft without showing what was folded in and confirming.
+- Never deprecate a merged draft. Remove it — it was never knowledge in its own right.
+- Never relocate a draft still carrying the provisional type. Settle the type first.
+- Relocation is not promotion. `move` leaves `status` and `verified` alone, and so do you.

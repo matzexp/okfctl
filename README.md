@@ -19,6 +19,7 @@ What it does not provide is any way to **operate** on those fields once they exi
 okfctl status      # what is stale, drifted, unverified, or still a draft
 okfctl check       # conformance errors and advisory lint warnings
 okfctl refs        # do citations and internal links still resolve?
+okfctl capture     # dump what a session established into the drafts area
 ```
 
 ## Why
@@ -78,12 +79,38 @@ okfctl new decisions/envoy-gateway --type Decision --by human:you \
 okfctl promote decisions/envoy-gateway --by human:you --stale-in 90d
 ```
 
-Every command takes an optional bundle root via `--bundle <dir>` (default `.`).
+### Capturing from a session
+
+Knowledge is produced in conversations with coding agents and lost when they end. Register
+one bundle as this machine's knowledge base, wire your agents to it, and a session in any
+repository can write into it:
+
+```bash
+okfctl init --register                                   # this bundle is the knowledge base
+okfctl init --agent claude-code --agent codex            # wire the agents to it
+okfctl init --agent claude-code --capture-every 5 -n     # preview, prompting every 5th turn
+```
+
+Captured knowledge lands in `drafts/` as a conformant concept — `status: draft`, no
+`verified`, the agent recorded as its producer, and the repository it came from recorded in
+`sources[]`. It is usable and findable, but nobody has vouched for it. A human empties the
+inbox later with `okfctl move`, or by merging it into a concept that already exists.
+
+### Which bundle a command acts on
+
+`--bundle <dir>`, then the bundle you are standing in, then the registered one. The middle
+step matters: working *on* a bundle must never write into a different one.
+
+Every command also takes `--drafts-dir <dir>` if `drafts/` is not where you want the
+holding area.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
+| `okfctl init [dir]` | Scaffold a bundle, `--register` it as this machine's knowledge base, `--agent` to wire a coding agent to it. |
+| `okfctl capture` | Low-ceremony capture into the drafts area: title, actor and a body, placement deferred. |
+| `okfctl move <from> <to>` | Relocate a concept, carrying its inbound links, indexes and log with it. Not a promotion. |
 | `okfctl check` | Two-tier conformance + lint. Errors gate CI; warnings inform. |
 | `okfctl status` | Corpus health: trust tiers, stale, draft, drifted, orphans. |
 | `okfctl new <path>` | Ingest: create a concept that conforms on the first write. |
@@ -110,7 +137,81 @@ okfctl refs --broken --strict         # CI: fail on any broken reference
 okfctl catalog                        # print the whole bundle, grouped by type
 okfctl catalog --write                # keep catalog.md at the bundle root
 okfctl catalog --check                # CI: fail when catalog.md has drifted
+
+okfctl init --register                              # register this bundle
+okfctl init --agent codex --capture-every 5         # prompt every 5th turn
+okfctl init --agent codex --remove                  # take back exactly what was installed
+okfctl capture --title "..." --by agent/1.0 --stdin # capture a body from stdin
+okfctl status --drafts                # drill into the inbox
+okfctl status --all                   # put drafts back in the attention list
+okfctl move drafts/x decisions/x --by human:me      # empty the inbox
+okfctl move drafts/x decisions/ -n    # preview the link rewrites first
 ```
+
+## The drafts area
+
+OKF already distinguishes trust not yet earned — that is `status: draft`. `drafts/` carries
+a different axis: **placement and shape not yet decided**. A draft decision is placed, typed
+and shaped, and only its trust is pending; a captured dump's type is a guess and its
+directory is a parking space. Different backlog, different verb.
+
+Everything in it is a real concept: it conforms to §11 on the first write, appears in the
+index, and can be cited. What changes is that `okfctl status` reports it as an **inbox**
+rather than in the attention list — every dump is draft and unverified on arrival, so
+leaving them there would bury whatever is actually rotting. The inbox line always names the
+count and the age of the oldest capture, so nothing is hidden, only moved.
+
+The spec names no such directory. This one is ours, and it is a convention: a bundle whose
+`drafts/` holds ordinary concepts is still perfectly conformant.
+
+## Agent hooks
+
+`okfctl init --agent <host>` installs the capture workflow into a coding agent's
+**user-level** configuration, so it applies in every repository — not just the bundle's own.
+
+It installs at **two scopes**, because the workflows are not used in the same place.
+`okf-capture` goes to user scope so it works in every repository; the five curation
+workflows — triage, ingest, promote, review, deprecate — go **into the bundle**, so they
+load when you open your knowledge base and nowhere else.
+
+| | Claude Code | Codex |
+|---|---|---|
+| **user** — capture | `~/.claude/skills/`, `~/.claude/commands/okf/` | `~/.agents/skills/` |
+| **project** — curation | `<bundle>/.claude/skills/`, `<bundle>/.claude/commands/okf/` | `<bundle>/.agents/skills/` |
+| hook | `~/.claude/settings.json` | `~/.codex/hooks.json` |
+
+| Host | Event hook | Notes |
+|---|---|---|
+| `claude-code` | yes — `Stop` | skills and slash commands at both scopes |
+| `codex` | yes — `Stop` | skills at both scopes plus `~/.codex/AGENTS.md`; no slash-command equivalent |
+| `copilot` | no | `~/.github/copilot-instructions.md` only — the host has no equivalent mechanism |
+| `agents-md` | no | `~/AGENTS.md` only |
+
+A bundle's `.claude/` and `.agents/` directories are dotfiles, which the bundle walk skips —
+so installing into a bundle adds no concepts and no conformance errors.
+
+**The hook prompts; it does not capture.** A hook is a shell command with no model, so it
+cannot summarize a session. One that tried would write garbage under an agent's provenance,
+which is a false claim in the sense §7 cares about. It asks; the agent decides and writes.
+
+**It fires on `Stop`, not `SessionEnd`.** On both hosts, session-end hook output is
+discarded and cannot reach the model, which makes it useless for prompting. `Stop` fires at
+turn completion and its output is injected into the model's context.
+
+**It holds the turn open.** Exiting quietly would surface the prompt only on the *next*
+turn, and if the session ends there the knowledge is gone. So it blocks — which costs a
+model round-trip every time it fires. `--capture-every <n>` is the knob; the default is
+every turn, and the installed interval is reported back to you.
+
+Blocking terminates by two independent guards: Codex's own `stop_hook_active`, and — for
+hosts that do not report their own continuations — an arm-on-user-input marker. A session
+circuit breaker bounds the worst case, and every error path lets the turn end. A hook that
+can hold a user in a conversation may only ever fail open.
+
+`init --agent` is the only thing `okfctl` writes outside a bundle. It is opt-in, previewable
+with `-n`, additive, idempotent, never destructive, and removable with `--remove` — which
+takes back both scopes, deletes files that existed only to hold what it installed, prunes
+the directories it created, and leaves your own settings and the bundle itself alone.
 
 Run `okfctl <command> --help` for the full flag list, and see
 [docs/design.md](docs/design.md) for what each command writes and why.
@@ -196,14 +297,16 @@ conformant first concept.
 
 The CLI knows *how* to make each change. The skills in [`.claude/skills/`](.claude/skills/)
 know *when*. Each is invocable in Claude Code by name as `/okf:<name>`, or selected from its
-description.
+description. `okfctl init --agent <host>` installs them — capture at user scope, the rest
+into your bundle.
 
 | Skill | For |
 |---|---|
+| `okf-capture` | A session produced something worth keeping. Summarizes it into the drafts area — or declines, which is the right answer more often than not. |
 | `okf-triage` | "How is this bundle doing?" Reports health, names the workflow each finding needs, and writes nothing. |
 | `okf-ingest` | New knowledge arriving. Matches the bundle's own types and placement, creates through `new`, then writes the body. |
 | `okf-promote` | A draft that has earned trust. Reads it first, establishes a real actor, sets a horizon. |
-| `okf-review` | The stale and drifted backlog. Checks each concept against its `sources[]` and routes to the outcome it actually found. |
+| `okf-review` | The stale and drifted backlog, and the drafts inbox. Checks each concept against its `sources[]`, routes to the outcome it actually found, and empties drafts by relocating or merging them. |
 | `okf-deprecate` | Retiring knowledge — and finding the live concepts still pointing at it. |
 
 Two rules hold the set together. **The CLI is the only writer**: no skill edits a frontmatter
