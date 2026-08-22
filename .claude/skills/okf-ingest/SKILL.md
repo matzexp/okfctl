@@ -38,6 +38,13 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
    Some bundles state their placement rule in a root guide or `README`. Read it if present
    and follow it.
 
+   A bundle with no corpus is the exception: `drafts/` and nothing else means there is no
+   convention to match, and the first concept filed invents one. Do not invent it silently.
+   Propose a layout, ask, and then record the answer as a concept, so the next agent can
+   infer the rule the way this step assumes it can. Sorting by subject domain and sorting
+   by concept type are both coherent; a bundle that does half of each is not, and nothing
+   in the tooling will report the split.
+
    Derive the id from the title in the bundle's existing style — usually kebab-case, no
    date prefix unless the directory already uses one (incident logs often do).
 
@@ -73,11 +80,17 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
 
    Write what the reader needs and no more. Follow the shape of neighbouring documents of
    the same type — if every decision in `decisions/` opens with a `# Decision` heading and
-   a `## Context`, so does this one.
+   a `## Context`, so does this one. `new` writes an H1 repeating the title; delete it where
+   the bundle's documents open on a section heading instead. The title is already in
+   frontmatter, and two of them read as a mistake.
 
-   If the knowledge rests on sources, cite them: add a `sources[]` entry and reference it
-   with a footnote whose label matches the `id` (SPEC §5.1). `okfctl refs` holds that join
-   together, and it only works if the labels match.
+   If the knowledge rests on sources, cite them — but know what you can and cannot write.
+   `okfctl new` has no flag for `sources[]`, and frontmatter is not yours to edit, so a
+   concept created here cannot carry a machine-checkable citation. Record the source in the
+   prose instead, under its own heading: the repository and commit, the query, the document.
+   Where a `sources[]` block already exists, as on a document `okfctl capture` wrote,
+   reference it with a footnote whose label matches the `id` (SPEC §5.1). `okfctl refs`
+   holds that join together, and it only works if the labels match.
 
 6. **Verify**
 
@@ -99,5 +112,9 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
 - Never invent an actor, a source, or a `stale_after` horizon. Absent is honest; guessed
   is a false claim in a field other tools will read.
 - Match the bundle's existing types and directory structure. Ask before introducing a new
-  type or a new top-level directory.
+  type or a new top-level directory — including the first one, when the bundle has none.
+- Never let `--by` claim another producer's work as yours. It records who wrote the
+  document; when the findings came from a different agent, a different session, or
+  measurements you did not reproduce, name that in the body and say the figures were
+  restated rather than re-measured.
 - Do not promote what you just created.

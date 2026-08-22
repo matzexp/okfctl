@@ -84,7 +84,7 @@ reader relies on.
    Per concept: the finding, what you checked it against, and what was written. Then the
    backlog that remains, and the concepts nobody could verify.
 
-6. **Emptying the drafts inbox**
+7. **Emptying the drafts inbox**
 
    A concept in the drafts area is a different backlog. It is not stale or drifted — it was
    never placed, and its type is a guess. `okfctl status` reports it as an inbox rather than
@@ -118,6 +118,29 @@ reader relies on.
    and stopped being so; a dump folded into another document was never knowledge in its own
    right. Run `okfctl refs --broken` afterwards to catch anything that linked to it.
 
+   **It is several concepts wearing one title** → split it.
+
+   A capture written at the end of a session tends to carry everything that session
+   established — three findings in three paragraphs, sharing nothing but the hour they were
+   found. Filed as one concept, each of them is buried by the other two. Write each finding
+   as its own concept with `okf-ingest`, cross-link them, and remove the draft only once
+   every paragraph has a home. Check that literally: a split that quietly drops the third
+   paragraph is the failure mode here, and nothing will report it.
+
+   **Several drafts are one concept** → consolidate them.
+
+   One run of work can produce two captures that overlap across a third of their content.
+   Fold them into one concept per question answered, not one concept per draft. Name which
+   drafts went into which concept before deleting any of them.
+
+   **Carry the provenance across.** Re-authoring through `okfctl new` records *you* as the
+   producer; the original `generated.by` and any `sources[]` do not survive the rewrite.
+   The draft may have come from another agent, in another session, from measurements you
+   have not reproduced. Name the original producer and its source in the body, and say
+   plainly that the figures were restated rather than re-measured. A re-authored concept
+   that reads as your own first-hand finding is a false provenance claim in the sense
+   SPEC §7 cares about, even though every field validates.
+
    **Neither fits** — an unintelligible draft, or one whose accuracy you cannot establish —
    leave it where it is and say so. Filing material you cannot vouch for is worse than an
    inbox that is one item longer.
@@ -135,4 +158,6 @@ reader relies on.
 - Never delete a draft without showing what was folded in and confirming.
 - Never deprecate a merged draft. Remove it — it was never knowledge in its own right.
 - Never relocate a draft still carrying the provisional type. Settle the type first.
+- Never delete a draft until every part of it has a home or an explicit decision to drop it.
+- Never let a re-authored draft claim your provenance for another producer's findings.
 - Relocation is not promotion. `move` leaves `status` and `verified` alone, and so do you.
