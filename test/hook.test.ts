@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BREAKER_LIMIT, decide } from '../src/commands/hook.ts';
+import { BREAKER_LIMIT, decide, payloadFor } from '../src/commands/hook.ts';
 import { runRegister, runInit } from '../src/commands/init.ts';
 import { requireBundleDir, stateDir } from '../src/core/userconfig.ts';
 import { runCapture } from '../src/commands/capture.ts';
@@ -53,7 +53,8 @@ test('a turn is held open, and the prompt names the registered bundle', () => {
   isolate();
   const bundle = registered();
   const outcome = turn('s1');
-  assert.equal(outcome.code, 2, 'exit 2 holds the turn open');
+  assert.equal(outcome.blocking, true, 'the turn is held open');
+  assert.equal(outcome.code, 0, 'blocking is a decision, never an exit status');
   assert.equal(outcome.reason, 'blocked');
   assert.match(outcome.message ?? '', new RegExp(bundle.replace(/[/\\]/g, '.')));
   assert.match(outcome.message ?? '', /do not\s*\n?\s*paste the transcript/i);
@@ -62,10 +63,10 @@ test('a turn is held open, and the prompt names the registered bundle', () => {
 test('the continuation a block produced is not itself blocked', () => {
   isolate();
   registered();
-  assert.equal(turn('s2').code, 2);
+  assert.equal(turn('s2').blocking, true);
   // The continuation ends in a Stop with no fresh user input before it.
   const continuation = decide({ payload: stop('s2'), every: 1 });
-  assert.equal(continuation.code, 0);
+  assert.equal(continuation.blocking, false);
   assert.equal(continuation.reason, 'continuation');
 });
 
@@ -73,7 +74,7 @@ test("Codex's own stop_hook_active suppresses a repeat block", () => {
   isolate();
   registered();
   const outcome = turn('s3', 1, { stop_hook_active: true });
-  assert.equal(outcome.code, 0);
+  assert.equal(outcome.blocking, false);
   assert.equal(outcome.reason, 'continuation');
 });
 
@@ -97,21 +98,21 @@ test('the circuit breaker bounds a runaway session', () => {
   registered();
   const now = Date.now();
   for (let i = 0; i < BREAKER_LIMIT; i++) {
-    assert.equal(turn('runaway', 1, {}, now + i).code, 2);
+    assert.equal(turn('runaway', 1, {}, now + i).blocking, true);
   }
   const tripped = turn('runaway', 1, {}, now + BREAKER_LIMIT);
-  assert.equal(tripped.code, 0);
+  assert.equal(tripped.blocking, false);
   assert.equal(tripped.reason, 'breaker');
   assert.match(tripped.message ?? '', /disabled for this session/);
 
   // And it stays tripped.
-  assert.equal(turn('runaway', 1, {}, now + BREAKER_LIMIT + 1).code, 0);
+  assert.equal(turn('runaway', 1, {}, now + BREAKER_LIMIT + 1).blocking, false);
 });
 
 test('with no registered bundle the hook never holds a turn open', () => {
   isolate();
   const outcome = turn('s5');
-  assert.equal(outcome.code, 0);
+  assert.equal(outcome.blocking, false);
   assert.equal(outcome.reason, 'no-bundle');
 });
 
@@ -150,7 +151,7 @@ test('an unarmed session is never blocked, whatever the interval', () => {
   registered();
   // Stop with no preceding user input at all.
   const outcome = decide({ payload: stop('s7'), every: 1 });
-  assert.equal(outcome.code, 0);
+  assert.equal(outcome.blocking, false);
   assert.equal(outcome.reason, 'continuation');
 });
 
@@ -166,7 +167,7 @@ test('end to end: a hook prompt in an unrelated repo captures into the registere
 
   // The turn ends: the hook holds it open and names where knowledge goes.
   const outcome = turn('e2e');
-  assert.equal(outcome.code, 2);
+  assert.equal(outcome.blocking, true);
   assert.match(outcome.message ?? '', new RegExp(bundle.replace(/[/\\]/g, '.')));
 
   // The agent, prompted, resolves the bundle the same way and captures.
@@ -189,4 +190,48 @@ test('end to end: a hook prompt in an unrelated repo captures into the registere
   assert.match(raw, /generated: \{ by: claude-code\/2\.1/);
   assert.match(raw, /git@example\.com:acme\/payments-api\.git@[0-9a-f]{7}/, 'the origin repo is recorded');
   assert.equal(countBy(checkBundle(loadBundle(bundle)), 'error'), 0);
+});
+
+test('blocking is a decision on stdout, never an error on stderr', () => {
+  isolate();
+  const bundle = registered();
+  const outcome = turn('json1');
+
+  const payload = JSON.parse(payloadFor(outcome)!);
+  assert.equal(payload.decision, 'block', 'the documented blocking decision');
+  assert.match(payload.reason, new RegExp(bundle.replace(/[/\\]/g, '.')));
+  assert.equal(payload.continue, undefined, '"continue": false would halt processing entirely');
+  assert.equal(outcome.code, 0, 'an advisory prompt is not a hook failure');
+});
+
+test('the exit code is 0 on every path there is', () => {
+  isolate();
+  registered();
+  const codes = new Set<number>();
+  codes.add(turn('x', 1).code);                                  // blocked
+  codes.add(decide({ payload: stop('x'), every: 1 }).code);       // continuation
+  codes.add(turn('y', 5).code);                                   // not due
+  codes.add(turn('z', 1, { stop_hook_active: true }).code);        // host guard
+  codes.add(decide({ payload: 'not json' }).code);                 // malformed
+  codes.add(decide({ payload: JSON.stringify({ session_id: 'q', hook_event_name: 'SessionEnd' }) }).code);
+  assert.deepEqual([...codes], [0], 'no exit status can ever hold a user in a conversation');
+});
+
+test('a quiet outcome writes nothing at all to stdout', () => {
+  isolate();
+  registered();
+  assert.equal(payloadFor(turn('quiet', 5)), null, 'a turn that is not due says nothing');
+  assert.equal(payloadFor(decide({ payload: 'not json' })), null);
+});
+
+test('the breaker warning is a system message, not a block', () => {
+  isolate();
+  registered();
+  const now = Date.now();
+  for (let i = 0; i < BREAKER_LIMIT; i++) turn('trip', 1, {}, now + i);
+  const tripped = turn('trip', 1, {}, now + BREAKER_LIMIT);
+
+  const payload = JSON.parse(payloadFor(tripped)!);
+  assert.equal(payload.decision, undefined, 'it must not block');
+  assert.match(payload.systemMessage, /disabled for this session/);
 });

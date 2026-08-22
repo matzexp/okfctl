@@ -198,10 +198,14 @@ which is a false claim in the sense §7 cares about. It asks; the agent decides 
 discarded and cannot reach the model, which makes it useless for prompting. `Stop` fires at
 turn completion and its output is injected into the model's context.
 
-**It holds the turn open.** Exiting quietly would surface the prompt only on the *next*
-turn, and if the session ends there the knowledge is gone. So it blocks — which costs a
-model round-trip every time it fires. `--capture-every <n>` is the knob; the default is
-every turn, and the installed interval is reported back to you.
+**It holds the turn open.** Emitting context without blocking would surface the prompt only
+on the *next* turn, and if the session ends there the knowledge is gone. So it blocks — which
+costs a model round-trip every time it fires. `--capture-every <n>` is the knob; the default
+is every turn, and the installed interval is reported back to you.
+
+It blocks by writing `{"decision": "block", "reason": …}` to stdout and **always exits 0**.
+Exit 2 blocks too, but it is the error channel — the host renders it as a hook failure, and
+an advisory prompt is not a failure.
 
 Blocking terminates by two independent guards: Codex's own `stop_hook_active`, and — for
 hosts that do not report their own continuations — an arm-on-user-input marker. A session

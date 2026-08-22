@@ -9,10 +9,15 @@ import { pruneSessions, readSession, registeredBundle, writeSession } from '../c
  * claim in the sense SPEC §7 cares about. So it does not capture — it *prompts*,
  * and the agent, which does have the transcript and a model, decides.
  *
- * It prompts by blocking the turn. Exiting 0 with additional context does not
+ * It prompts by blocking the turn. Emitting context without blocking does not
  * give the agent a chance to act: the context is seen on the *next* turn, and if
  * the session ends there the knowledge is gone. Holding the turn open is the
  * only way to document what a turn produced before control returns to the user.
+ *
+ * It blocks with `{ decision: "block", reason }` on stdout and **always exits 0**,
+ * on both supported hosts. Exit 2 blocks too, but it is the error channel: the
+ * host renders stderr as a hook failure, and an advisory prompt is not a failure.
+ * Always exiting 0 also means no exit code can ever hold a user in a conversation.
  */
 
 /** Blocks allowed in one session inside the window before the breaker trips. */
@@ -27,11 +32,22 @@ export interface HookOptions {
 }
 
 export interface HookOutcome {
-  /** 0 lets the turn end; 2 holds it open. */
+  /** Always 0. Blocking is a decision on stdout, never an exit status. */
   code: number;
-  /** What the agent is told, when anything is. */
+  /** True when the turn is held open. */
+  blocking: boolean;
+  /** What the agent or user is told, when anything is. */
   message: string | null;
   reason: 'blocked' | 'not-due' | 'continuation' | 'unarmed' | 'breaker' | 'no-bundle' | 'ignored';
+}
+
+/** The JSON a host reads on stdout, or null when there is nothing to say. */
+export function payloadFor(outcome: HookOutcome): string | null {
+  if (outcome.blocking) {
+    return JSON.stringify({ decision: 'block', reason: outcome.message });
+  }
+  if (outcome.message) return JSON.stringify({ systemMessage: outcome.message });
+  return null;
 }
 
 interface Payload {
@@ -45,7 +61,8 @@ interface Payload {
 
 export function runHook(options: HookOptions): number {
   const outcome = decide(options);
-  if (outcome.message) process.stderr.write(`${outcome.message}\n`);
+  const payload = payloadFor(outcome);
+  if (payload) process.stdout.write(`${payload}\n`);
   return outcome.code;
 }
 
@@ -55,7 +72,7 @@ export function decide(options: HookOptions, now = Date.now()): HookOutcome {
   try {
     return evaluate(options, now);
   } catch {
-    return { code: 0, message: null, reason: 'ignored' };
+    return { code: 0, blocking: false, message: null, reason: 'ignored' };
   }
 }
 
@@ -65,13 +82,13 @@ function evaluate(options: HookOptions, now: number): HookOutcome {
   try {
     payload = JSON.parse(raw) as Payload;
   } catch {
-    return { code: 0, message: null, reason: 'ignored' };
+    return { code: 0, blocking: false, message: null, reason: 'ignored' };
   }
 
   const sessionId = typeof payload.session_id === 'string' && payload.session_id
     ? payload.session_id
     : null;
-  if (!sessionId) return { code: 0, message: null, reason: 'ignored' };
+  if (!sessionId) return { code: 0, blocking: false, message: null, reason: 'ignored' };
 
   const event = payload.hook_event_name ?? '';
   const state = readSession(sessionId);
@@ -81,15 +98,15 @@ function evaluate(options: HookOptions, now: number): HookOutcome {
   // not report continuations itself.
   if (event === 'UserPromptSubmit') {
     writeSession(sessionId, { ...state, armed: true });
-    return { code: 0, message: null, reason: 'ignored' };
+    return { code: 0, blocking: false, message: null, reason: 'ignored' };
   }
 
-  if (event !== 'Stop') return { code: 0, message: null, reason: 'ignored' };
+  if (event !== 'Stop') return { code: 0, blocking: false, message: null, reason: 'ignored' };
 
   // Codex reports its own continuations. Where that signal exists it is exact,
   // and it is checked before anything else.
   if (payload.stop_hook_active === true) {
-    return { code: 0, message: null, reason: 'continuation' };
+    return { code: 0, blocking: false, message: null, reason: 'continuation' };
   }
 
   const turns = state.turns + 1;
@@ -97,13 +114,14 @@ function evaluate(options: HookOptions, now: number): HookOutcome {
 
   if (state.tripped) {
     writeSession(sessionId, { ...state, turns, blockTimes: recent });
-    return { code: 0, message: null, reason: 'breaker' };
+    return { code: 0, blocking: false, message: null, reason: 'breaker' };
   }
 
   if (recent.length >= BREAKER_LIMIT) {
     writeSession(sessionId, { ...state, turns, blockTimes: recent, tripped: true, armed: false });
     return {
       code: 0,
+      blocking: false,
       message: `okfctl: capture prompts disabled for this session after ${BREAKER_LIMIT} in ` +
         `${Math.round(BREAKER_WINDOW_MS / 1000)}s. Run \`okfctl capture\` by hand if needed.`,
       reason: 'breaker',
@@ -113,20 +131,20 @@ function evaluate(options: HookOptions, now: number): HookOutcome {
   // A continuation this hook caused finds the session disarmed.
   if (!state.armed) {
     writeSession(sessionId, { ...state, turns, blockTimes: recent });
-    return { code: 0, message: null, reason: 'continuation' };
+    return { code: 0, blocking: false, message: null, reason: 'continuation' };
   }
 
   const every = Math.max(1, Math.floor(options.every ?? 1));
   if (turns % every !== 0) {
     writeSession(sessionId, { ...state, turns, blockTimes: recent });
-    return { code: 0, message: null, reason: 'not-due' };
+    return { code: 0, blocking: false, message: null, reason: 'not-due' };
   }
 
   // Nothing to capture into is not a reason to hold the user in a conversation.
   const bundle = registeredBundle();
   if (!bundle) {
     writeSession(sessionId, { ...state, turns, blockTimes: recent, armed: false });
-    return { code: 0, message: null, reason: 'no-bundle' };
+    return { code: 0, blocking: false, message: null, reason: 'no-bundle' };
   }
 
   pruneSessions();
@@ -138,7 +156,7 @@ function evaluate(options: HookOptions, now: number): HookOutcome {
     armed: false,
   });
 
-  return { code: 2, message: prompt(bundle), reason: 'blocked' };
+  return { code: 0, blocking: true, message: prompt(bundle), reason: 'blocked' };
 }
 
 /**

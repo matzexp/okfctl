@@ -249,10 +249,18 @@ calls session-end hooks advisory and says their output "won't steer Codex". Neit
 the model. `Stop` fires at turn completion on both, and on both, stdout
 `hookSpecificOutput.additionalContext` is injected into the model's context.
 
-**The hook blocks, and that is the point.** Exiting 0 does not give the agent a chance to act
-before the turn ends — the context is seen on the *next* turn, and if the session ends there
-the knowledge is gone. Holding the turn open is the only way to document what a turn produced
-before control returns to the user.
+**The hook blocks, and that is the point.** Emitting context without blocking does not give
+the agent a chance to act before the turn ends — the context is seen on the *next* turn, and
+if the session ends there the knowledge is gone. Holding the turn open is the only way to
+document what a turn produced before control returns to the user.
+
+**It blocks with a decision, not an exit code.** Both hosts accept `exit 2` with the reason
+on stderr, and both also accept `{ "decision": "block", "reason": … }` on stdout. The second
+is the right one: stderr is the error channel, the host renders it as a hook failure, and an
+advisory prompt asking whether anything was worth writing down is not a failure. So the hook
+**always exits 0** — which also means no exit status can ever hold a user in a conversation,
+independent of the guards below. `"continue": false` is deliberately not used: it is stronger
+than a block and halts processing entirely.
 
 **Blocking must terminate, and the hosts differ.** Codex documents `stop_hook_active` —
 "whether this turn was already continued by `Stop`" — so the guard is exact. Claude Code
@@ -287,8 +295,8 @@ generated second copy would drift.
 ### Two hosts, one hook program
 
 Claude Code and Codex converged on the same design: same event names, the same
-`event → matcher group → hooks[]` config shape, one JSON object on stdin, and exit 2 to
-block. So this is not two adapters — it is **one hook program plus one config writer per
+`event → matcher group → hooks[]` config shape, one JSON object on stdin, and the same
+`decision: block` response. So this is not two adapters — it is **one hook program plus one config writer per
 host**, and adding a further host is a config writer, not a new design.
 
 `init --agent` is the only thing `okfctl` writes outside a bundle, and it writes at *user*
