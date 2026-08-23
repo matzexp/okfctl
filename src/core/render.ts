@@ -1,4 +1,48 @@
+import { stringify as stringifyYaml } from 'yaml';
 import { conceptTitle, type Concept } from './concept.ts';
+
+/**
+ * The formats every structured-output command accepts. `table` is each
+ * command's own hand-written human output — never a generic renderer — so
+ * `renderOutput` only handles the two machine-readable branches.
+ */
+export type OutputFormat = 'table' | 'json' | 'yaml';
+
+/**
+ * One rendering path for `json`/`yaml`, shared by every command instead of
+ * each writing its own `JSON.stringify` branch. `table` is not handled here:
+ * callers keep printing their own hand-tuned human output for it, since a
+ * generic tabulator would be a regression relative to what each command
+ * already does.
+ */
+export function renderOutput(data: unknown, format: 'json' | 'yaml'): string {
+  return format === 'yaml' ? stringifyYaml(data) : JSON.stringify(data, null, 2);
+}
+
+/** `--format` values other than these three are refused before any command runs. */
+export const OUTPUT_FORMATS: readonly OutputFormat[] = ['table', 'json', 'yaml'];
+
+export function isOutputFormat(value: string): value is OutputFormat {
+  return (OUTPUT_FORMATS as readonly string[]).includes(value);
+}
+
+/**
+ * `--json` is a permanent alias for `--format json` (never deprecated — SPEC
+ * cli-output-format §"`--json` Is A Permanent Alias). `--format` wins when a
+ * caller passes both, since it is the more specific flag. Throws rather than
+ * printing, so every command reports the refusal the same way it reports its
+ * other validation failures.
+ */
+export function resolveFormat(options: { format?: string; json?: boolean }): OutputFormat {
+  const raw = options.format;
+  if (raw) {
+    if (!isOutputFormat(raw)) {
+      throw new Error(`invalid --format "${raw}"; expected table, json, or yaml`);
+    }
+    return raw;
+  }
+  return options.json === true ? 'json' : 'table';
+}
 
 /**
  * Shared between `okfctl index` and `okfctl catalog`. Both render SPEC §8

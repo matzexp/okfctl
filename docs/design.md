@@ -280,6 +280,53 @@ frontmatter. So completeness stays an explicit, opt-in act by the caller (mirror
 `okf-review`'s existing "never delete a draft without confirming" discipline for merges)
 rather than something `refine` guesses at.
 
+## Machine-readable output
+
+`status`, `check`, `refs`, and `search` share one rendering path, `renderOutput(data,
+format)`, instead of each writing its own `JSON.stringify` branch — a new command adopts it
+by calling one function. `table` is never routed through it: table format stays each
+command's own hand-written human output, because a generic tabulator would be a regression
+relative to a report already tuned to what that command reports.
+
+`--json` predates `--format` and stays exactly as it was — a permanent alias for `--format
+json`, not a deprecated one. Rejected: sunsetting it in favor of `--format` alone. It costs
+nothing to keep both, three commands' worth of muscle memory already depends on it, and
+`--format` is strictly more general (it also reaches `yaml`) rather than a replacement with
+different behavior.
+
+YAML rides along because the `yaml` package is already a dependency for frontmatter — the
+marginal cost of a second serializer was low enough not to defer it to a later change, unlike
+a feature that would have needed real design work of its own.
+
+## `search`: area, trust tier, and the ranking boost
+
+Extends the `search` capability (see the `add-search-command` change this built on) with two
+things every consumer asked of ranked search over a corpus that mixes raw dumps, refined
+drafts, and settled corpus knowledge in one query: know which is which, and let it affect the
+order.
+
+**Area and trust tier are read at query time, from `health()` — the same function `status`
+already computes per concept — and `inDumps`/`inDrafts`.** No new derivation logic, no new
+stored signal: both were already computable per-concept, `search` just started reporting
+them per hit, in table and structured output.
+
+**Ranking applies a soft boost, not a hard sort key.** A hard sort key — every `human-
+reviewed` result above every `unverified` one, regardless of relevance — was the first
+design and was rejected: it lets a weakly relevant but well-trusted concept bury a strongly
+relevant dump, which is the exact opposite failure from the one motivating this feature (a
+lucky keyword match in a provisional dump outranking a human-reviewed decision on the same
+query, with nothing in the output to say so). The chosen boost multiplies MiniSearch's
+relevance score — `human-reviewed` ×1.5, `machine-confirmed` ×1.2, `unverified` unchanged —
+the same style the existing `title`/`description`/`tags` field boost already uses. The
+multipliers are implementation constants next to that existing `BOOST` table, not a spec-level
+contract: the spec only requires the direction (higher trust ranks higher, all else being
+equal) and that a clearly stronger relevance match can still win regardless of trust tier.
+
+**Nothing about what `search` already returned changed.** It searched `dumps/`, `drafts/`,
+and the corpus together before this change too; the only difference is that a hit's area and
+trust tier are now visible in the output instead of being an undocumented fact a caller had
+to already know to interpret a result correctly.
+
 ## `move`
 
 ```bash

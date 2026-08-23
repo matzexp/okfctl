@@ -47,7 +47,8 @@ program
   .description('conformance errors (SPEC 11) and advisory lint warnings')
   .option('--strict', 'exit non-zero on warnings too (opt-in; not spec conformance)')
   .option('--quiet', 'show errors only')
-  .option('--json', 'machine-readable output')
+  .option('--format <fmt>', 'table (default), json, or yaml')
+  .option('--json', 'shorthand for --format json')
   .action(function (this: Command, options) {
     exit(runCheck({ bundle: bundleDir(this), ...options }));
   });
@@ -62,7 +63,8 @@ program
   .option('--dumps', 'only the dumps inbox (raw captures)')
   .option('--drafts', 'only the drafts inbox (refined entries)')
   .option('--all', 'include dumps- and drafts-area concepts in the attention list')
-  .option('--json', 'machine-readable output')
+  .option('--format <fmt>', 'table (default), json, or yaml')
+  .option('--json', 'shorthand for --format json')
   .action(function (this: Command, options) {
     exit(runStatus({ bundle: bundleDir(this), dumpsDir: dumpsDir(this), draftsDir: draftsDir(this), ...options }));
   });
@@ -224,7 +226,8 @@ program
   .option('--broken', 'only concepts with an unresolved reference')
   .option('--anchors', 'also verify #fragments against the target document headings')
   .option('--strict', 'exit non-zero on a broken reference, and imply --anchors (opt-in; not spec conformance)')
-  .option('--json', 'machine-readable output')
+  .option('--format <fmt>', 'table (default), json, or yaml')
+  .option('--json', 'shorthand for --format json')
   .action(function (this: Command, options) {
     exit(runRefs({ bundle: bundleDir(this), ...options }));
   });
@@ -241,14 +244,22 @@ program
 
 program
   .command('search <query>')
-  .description('find concepts by relevance across frontmatter and body')
+  .description('find concepts by relevance across frontmatter and body, ranked with trust tier')
   .option('--limit <n>', `results to show (default ${DEFAULT_LIMIT})`, (value: string) =>
     Number.parseInt(value, 10))
+  .option('--format <fmt>', 'table (default), json, or yaml')
+  .option('--json', 'shorthand for --format json')
   .action(function (this: Command, query: string, options) {
     // Unlike the other read commands this one requires a real bundle rather than
     // falling back to the cwd: searching whatever directory you happen to be in
     // returns a confident empty result, which reads as "the bundle knows nothing".
-    exit(runSearch({ bundle: writeBundleDir(this), query, ...options }));
+    exit(runSearch({
+      bundle: writeBundleDir(this),
+      dumpsDir: dumpsDir(this),
+      draftsDir: draftsDir(this),
+      query,
+      ...options,
+    }));
   });
 
 program

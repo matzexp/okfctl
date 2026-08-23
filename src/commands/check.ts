@@ -1,10 +1,12 @@
 import { loadBundle } from '../core/bundle.ts';
 import { checkBundle, countBy, type Diagnostic } from '../core/check.ts';
+import { renderOutput, resolveFormat } from '../core/render.ts';
 import { bold, dim, green, red, yellow } from '../core/term.ts';
 
 export interface CheckOptions {
   bundle: string;
   strict?: boolean;
+  format?: string;
   json?: boolean;
   quiet?: boolean;
 }
@@ -15,11 +17,18 @@ export function runCheck(options: CheckOptions): number {
   const errors = countBy(diagnostics, 'error');
   const warnings = countBy(diagnostics, 'warn');
 
-  if (options.json) {
-    console.log(JSON.stringify(
+  let format;
+  try {
+    format = resolveFormat(options);
+  } catch (error) {
+    console.error(red((error as Error).message));
+    return 1;
+  }
+
+  if (format !== 'table') {
+    console.log(renderOutput(
       { root: bundle.root, concepts: bundle.concepts.length, diagnostics },
-      null,
-      2,
+      format,
     ));
   } else {
     report(diagnostics, options.quiet === true);

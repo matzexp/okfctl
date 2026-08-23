@@ -3,6 +3,7 @@ import { conceptTitle } from '../core/concept.ts';
 import { inDrafts, resolveDraftsDir } from '../core/drafts.ts';
 import { inDumps, resolveDumpsDir } from '../core/dumps.ts';
 import { generatedAt, health, type Health, type Status, type TrustTier } from '../core/lifecycle.ts';
+import { renderOutput, resolveFormat } from '../core/render.ts';
 import { bold, cyan, dim, green, red, table, yellow } from '../core/term.ts';
 
 export interface StatusOptions {
@@ -16,6 +17,7 @@ export interface StatusOptions {
   dumps?: boolean;
   drafts?: boolean;
   all?: boolean;
+  format?: string;
   json?: boolean;
 }
 
@@ -68,8 +70,16 @@ export function runStatus(options: StatusOptions): number {
 
   const filtered = applyFilters(rows, options);
 
-  if (options.json) {
-    console.log(JSON.stringify({ root: bundle.root, dumpsDir, draftsDir, concepts: filtered }, null, 2));
+  let format;
+  try {
+    format = resolveFormat(options);
+  } catch (error) {
+    console.error(red((error as Error).message));
+    return 1;
+  }
+
+  if (format !== 'table') {
+    console.log(renderOutput({ root: bundle.root, dumpsDir, draftsDir, concepts: filtered }, format));
     return 0;
   }
 

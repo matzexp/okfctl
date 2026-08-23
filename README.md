@@ -151,14 +151,16 @@ Every command also takes `--dumps-dir <dir>` and `--drafts-dir <dir>` if `dumps/
 | `okfctl index` | Regenerate `index.md` from frontmatter (§8). `--check` for CI. |
 | `okfctl refs` | Reference integrity: footnote ↔ `sources[].id`, and internal links. `--strict` for CI. |
 | `okfctl catalog` | The whole bundle as one document, grouped by type. Prints by default. |
-| `okfctl search <query>` | Ranked full-text search over `title`, `description`, `tags` and body. Indexed in memory per run, never persisted. `--limit` to widen. |
+| `okfctl search <query>` | Ranked full-text search over `title`, `description`, `tags` and body, boosted by trust tier. Each result names its area (dumps/drafts/corpus) and trust tier. Indexed in memory per run, never persisted. `--limit` to widen. |
 
 Common invocations:
 
 ```bash
 okfctl check --strict                 # treat warnings as errors (opt-in only)
 okfctl status --stale --drifted       # filter to what needs attention
-okfctl status --json                  # machine-readable
+okfctl status --json                  # machine-readable (shorthand for --format json)
+okfctl status --format yaml           # same data, yaml
+okfctl search "gateway timeout" --format json | jq '.results[] | select(.tier == "human-reviewed")'
 okfctl new decisions/x --type Decision --dry-run    # preview the frontmatter
 okfctl review <id> --confirm  --by human:me --stale-in 90d
 okfctl review <id> --outdated --by human:me --reason "FY26 restatement"
@@ -183,6 +185,24 @@ okfctl refine dumps/x --type Runbook --title "..." --by agent/1.0 --stdin --cons
 okfctl move drafts/x decisions/x --by human:me      # empty the drafts inbox
 okfctl move drafts/x decisions/ -n    # preview the link rewrites first
 ```
+
+## Machine-readable output
+
+`status`, `check`, `refs`, and `search` all take `--format table|json|yaml` (`table` is the
+default, matching each command's existing human output). `--json` still works everywhere it
+did before — it is a permanent shorthand for `--format json`, not deprecated. `--format` wins
+if you pass both.
+
+```bash
+okfctl status --format json | jq '.concepts[] | select(.tier == "unverified")'
+okfctl search "gateway timeout" --format yaml
+```
+
+`search` results carry each hit's area (`dumps`, `drafts`, or `corpus`) and trust tier
+(§5.3) alongside its score, in both table and structured output, so a caller can tell how
+settled a match is without opening it. Ranking applies a soft trust-tier boost on top of
+relevance — enough to break a near-tie toward the more-trusted result, never enough to let
+trust tier alone bury a clearly stronger match.
 
 ## The dumps and drafts areas
 

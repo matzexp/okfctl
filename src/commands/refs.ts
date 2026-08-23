@@ -1,5 +1,6 @@
 import { loadBundle } from '../core/bundle.ts';
 import { conceptRefs, type ConceptRefs, type Join, type Link } from '../core/refs.ts';
+import { renderOutput, resolveFormat } from '../core/render.ts';
 import { bold, cyan, dim, green, red, table, yellow } from '../core/term.ts';
 
 export interface RefsOptions {
@@ -7,6 +8,7 @@ export interface RefsOptions {
   broken?: boolean;
   strict?: boolean;
   anchors?: boolean;
+  format?: string;
   json?: boolean;
 }
 
@@ -44,8 +46,16 @@ export function runRefs(options: RefsOptions): number {
   const broken =
     counts.unjoined + counts.undefined + counts.unresolved + counts['anchor-missing'];
 
-  if (options.json) {
-    console.log(JSON.stringify({ root: bundle.root, counts, concepts: reports }, null, 2));
+  let format;
+  try {
+    format = resolveFormat(options);
+  } catch (error) {
+    console.error(red((error as Error).message));
+    return 1;
+  }
+
+  if (format !== 'table') {
+    console.log(renderOutput({ root: bundle.root, counts, concepts: reports }, format));
     return exitCode(broken, options);
   }
 
