@@ -451,6 +451,50 @@ not a contract, it is a squat.
 Hosts with no event mechanism — `copilot`, `agents-md` — receive instructions only, and the
 adapter says so. An adapter may not claim a wiring it does not perform.
 
+## `update`
+
+```bash
+okfctl update
+```
+
+Refreshes exactly the hosts already installed for a bundle, without the caller naming
+`--agent` — the gap `init` left open: every skill and hook changes as `okfctl` changes, and
+the only way to pick that up before this command existed was remembering exactly which
+`--agent` flags were used originally and re-running `init` by hand, which also silently
+reset `--capture-every` back to the default unless the caller remembered to pass it again.
+
+**Detection checks what only an install creates, never a config file's bare existence.**
+Each adapter gained `isInstalled(context)`, checked against the distributed capture-skill
+file (hook hosts) or the upserted `<!-- okfctl:capture -->` section marker
+(instructions-only hosts) — never against `~/.claude/settings.json` or `~/AGENTS.md`
+existing, since both commonly predate and have nothing to do with `okfctl`. For a hook
+host, "installed" further requires a curation skill to exist inside *this* bundle
+specifically, not merely that the host is wired somewhere on the machine — capture is
+shared at user scope across every bundle, so checking only the user-scope artifact would
+make `update <bundle>` write curation skills into a bundle that host was never wired to at
+all, silently doing `init`'s job under `update`'s name.
+
+**The installed interval is read back, not reset.** `--capture-every` is not stored as a
+separate field anywhere; it lives only inside the hook command string
+(`okfctl hook <host> --every <n>`) that `isOurs()` already recognizes for idempotent
+reinstall. `installedInterval` opens the same config, finds that entry, and regexes the
+digits back out — `null` when unparseable, which `update` treats as "use the tool's
+default" rather than a refusal. Considered storing the interval as a second, structured
+field alongside the command string: rejected, because the command string still has to
+carry `--every <n>` for the hook program itself to read at runtime, and keeping two
+representations of the same fact in sync is exactly the kind of drift this command exists
+to close elsewhere, not introduce here.
+
+**Scoped narrower than `init` on purpose.** `update` never scaffolds `dumps/`/`drafts/`/
+`.okf/policy/`, never touches registration, and never installs a host `isInstalled` finds
+false — the same "only take back what you find, nothing more" discipline `init --remove`
+already applies to removal, applied here to refreshing instead. A `--refresh` flag on
+`init` itself was considered and rejected: `init`'s positional `[dir]` argument already
+carries scaffolding side effects that have no place in a refresh, and a flag that changes
+which side effects a command has depending on what else is passed is the kind of implicit
+mode-switching this tool avoids everywhere else (`review`'s `--confirm`/`--outdated` are
+separate outcomes, not one command inferring which was meant).
+
 ## `promote`
 
 ```bash

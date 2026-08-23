@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInit } from '../src/commands/init.ts';
-import { ADAPTERS, findAdapter } from '../src/core/agents/hosts.ts';
+import { ADAPTERS, findAdapter, installedInterval } from '../src/core/agents/hosts.ts';
 import { CAPTURE_SKILL, LIFECYCLE_SKILLS, readCommand, readSkill } from '../src/core/agents/sources.ts';
 import { loadBundle } from '../src/core/bundle.ts';
 import { checkBundle, countBy } from '../src/core/check.ts';
@@ -355,6 +355,67 @@ test('reinstalling into a bundle overwrites rather than duplicating', () => {
     readSkill('okf-review'),
     'an outdated copy is refreshed from the package',
   );
+});
+
+test('isInstalled is false before install, true after, false after --remove', () => {
+  for (const name of ['claude-code', 'codex', 'copilot', 'agents-md']) {
+    const { home, bundle } = isolate();
+    const adapter = findAdapter(name);
+    const context = { command: '/usr/bin/okfctl', every: 1, home, bundle };
+
+    assert.equal(adapter.isInstalled(context), false, `${name}: not installed yet`);
+    install(home, bundle, [name]);
+    assert.equal(adapter.isInstalled(context), true, `${name}: installed`);
+    quiet(() => runInit(bundle, { agent: [name], remove: true, home, command: '/usr/bin/okfctl' }));
+    assert.equal(adapter.isInstalled(context), false, `${name}: removed`);
+  }
+});
+
+test('isInstalled is not fooled by a pre-existing, unrelated config file', () => {
+  const { home, bundle } = isolate();
+  mkdirSync(join(home, '.claude'), { recursive: true });
+  writeFileSync(settings(home), JSON.stringify({ someOtherSetting: true }));
+  mkdirSync(join(home, '.github'), { recursive: true });
+  writeFileSync(join(home, '.github', 'copilot-instructions.md'), '# My own notes\n');
+  mkdirSync(home, { recursive: true });
+  writeFileSync(join(home, 'AGENTS.md'), '# My own notes\n');
+
+  const context = { command: '/usr/bin/okfctl', every: 1, home, bundle };
+  assert.equal(findAdapter('claude-code').isInstalled(context), false);
+  assert.equal(findAdapter('copilot').isInstalled(context), false);
+  assert.equal(findAdapter('agents-md').isInstalled(context), false);
+});
+
+test('isInstalled requires this bundle specifically, not just this host anywhere', () => {
+  const { home, bundle } = isolate();
+  const other = mkdtempSync(join(tmpdir(), 'okfctl-agentkb-other-'));
+  install(home, bundle, ['claude-code']);
+
+  const context = { command: '/usr/bin/okfctl', every: 1, home, bundle: other };
+  assert.equal(
+    findAdapter('claude-code').isInstalled(context),
+    false,
+    'capture is shared at user scope, but curation skills were never written into `other`',
+  );
+});
+
+test('installedInterval reads back what was installed, and is null before install', () => {
+  const { home, bundle } = isolate();
+  assert.equal(installedInterval(settings(home), 'claude-code'), null);
+  assert.equal(installedInterval(codexHooks(home), 'codex'), null);
+
+  install(home, bundle, ['claude-code', 'codex'], { captureEvery: 7 });
+  assert.equal(installedInterval(settings(home), 'claude-code'), 7);
+  assert.equal(installedInterval(codexHooks(home), 'codex'), 7);
+});
+
+test('installedInterval is null against a config with an unrelated hooks entry', () => {
+  const { home } = isolate();
+  mkdirSync(join(home, '.claude'), { recursive: true });
+  writeFileSync(settings(home), JSON.stringify({
+    hooks: { Stop: [{ hooks: [{ type: 'command', command: 'some-other-tool --flag' }] }] },
+  }));
+  assert.equal(installedInterval(settings(home), 'claude-code'), null);
 });
 
 test('every packaged skill and command is readable', () => {

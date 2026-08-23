@@ -1,6 +1,7 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  applyPlan, captureInstructions, readIfPresent, removeSection, upsertSection,
+  applyPlan, captureInstructions, MARK_START, readIfPresent, removeSection, upsertSection,
   type Adapter, type Edit, type InstallContext, type Plan,
 } from './adapter.ts';
 import {
@@ -57,6 +58,40 @@ function removeHook(config: HookConfig, event: string): HookConfig {
   if (cleaned.length === 0) delete next[event];
   else next[event] = cleaned;
   return next;
+}
+
+/**
+ * Read the currently-installed prompt interval back out of a hook host's config,
+ * by finding the entry `isOurs()` recognizes and extracting the digits after
+ * `--every ` in its command string — the only place the interval is recorded.
+ * `null` when the config is absent, unparseable, or carries no entry of ours;
+ * `update` falls back to the tool's default in that case rather than refusing.
+ */
+export function installedInterval(configPath: string, host: string): number | null {
+  const raw = readIfPresent(configPath);
+  if (raw === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const hooks = parsed && typeof parsed === 'object'
+    ? (parsed as Record<string, unknown>).hooks
+    : null;
+  if (!hooks || typeof hooks !== 'object') return null;
+
+  for (const groups of Object.values(hooks as Record<string, unknown>)) {
+    if (!Array.isArray(groups)) continue;
+    for (const group of groups as Matcher[]) {
+      for (const entry of group.hooks ?? []) {
+        if (!isOurs(entry) || !entry.command.includes(` hook ${host} `)) continue;
+        const match = /--every (\d+)/.exec(entry.command);
+        if (match) return Number.parseInt(match[1], 10);
+      }
+    }
+  }
+  return null;
 }
 
 /** Read a JSON config we are about to edit. Unparseable is a refusal, not an overwrite. */
@@ -197,6 +232,25 @@ function skillEdits(context: InstallContext, layout: SkillLayout, remove: boolea
   return edits;
 }
 
+/**
+ * True when this host is wired for this exact bundle: the capture skill exists
+ * at user scope (this host is wired on this machine at all) *and* at least one
+ * curation skill exists at this bundle's project scope (this bundle specifically
+ * received it) — checking only the first is not enough, since capture is shared
+ * across every bundle on the machine and would otherwise make `update` install
+ * curation skills into a bundle this host was never wired to.
+ */
+function isWiredToThisBundle(context: InstallContext, layout: SkillLayout): boolean {
+  const captureInstalled = existsSync(
+    join(context.home, ...layout.userSkills, CAPTURE_SKILL, 'SKILL.md'),
+  );
+  const firstCuration = LIFECYCLE_SKILLS[0];
+  const curationInstalled = existsSync(
+    join(context.bundle, ...layout.projectSkills, firstCuration, 'SKILL.md'),
+  );
+  return captureInstalled && curationInstalled;
+}
+
 const CLAUDE_LAYOUT: SkillLayout = {
   userSkills: ['.claude', 'skills'],
   userCommands: ['.claude', 'commands', 'okf'],
@@ -239,6 +293,9 @@ const claudeCode: Adapter = {
       true,
     );
   },
+  isInstalled(context) {
+    return isWiredToThisBundle(context, CLAUDE_LAYOUT);
+  },
 };
 
 /**
@@ -264,6 +321,9 @@ const codex: Adapter = {
       ...skillEdits(context, CODEX_LAYOUT, true),
     ], true);
   },
+  isInstalled(context) {
+    return isWiredToThisBundle(context, CODEX_LAYOUT);
+  },
 };
 
 /** A host with no event mechanism gets instructions, and is told so plainly. */
@@ -288,6 +348,10 @@ function instructionsOnly(name: string, file: (context: InstallContext) => strin
         unsupported: [],
         hook: false,
       };
+    },
+    isInstalled(context) {
+      const existing = readIfPresent(file(context));
+      return existing !== null && existing.includes(MARK_START);
     },
   };
 }

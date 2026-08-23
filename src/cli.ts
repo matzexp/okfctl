@@ -7,6 +7,7 @@ import { runNew } from './commands/new.ts';
 import { runCapture } from './commands/capture.ts';
 import { runMove } from './commands/move.ts';
 import { runInit } from './commands/init.ts';
+import { runUpdate } from './commands/update.ts';
 import { runHook } from './commands/hook.ts';
 import { runReview } from './commands/review.ts';
 import { runIndex } from './commands/index-gen.ts';
@@ -99,6 +100,16 @@ program
   .option('-n, --dry-run', 'list every path it would create or edit without writing')
   .action(function (this: Command, dir: string | undefined, options) {
     exit(runInit(dir ?? '.', { dumpsDir: dumpsDir(this), draftsDir: draftsDir(this), ...options }));
+  });
+
+program
+  .command('update [dir]')
+  .description('refresh exactly the hosts already installed for a bundle: skills, commands, hook config')
+  .option('--capture-every <n>', 'apply a new interval to every host touched (default: keep each one\'s current interval)', (value: string) =>
+    Number.parseInt(value, 10))
+  .option('-n, --dry-run', 'list every path it would refresh without writing')
+  .action(function (this: Command, dir: string | undefined, options) {
+    exit(runUpdate(dir ?? '.', options));
   });
 
 program

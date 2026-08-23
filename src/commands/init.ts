@@ -134,7 +134,7 @@ export function runInit(target: string, options: InitOptions): number {
  * is narrow: additive, idempotent, previewable, reversible, and never a rewrite
  * of a file it could not parse.
  */
-function runHosts(
+export function runHosts(
   hosts: string[],
   options: InitOptions,
   every: number,

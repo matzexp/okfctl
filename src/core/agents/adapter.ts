@@ -50,6 +50,12 @@ export interface Adapter {
   hook: boolean;
   plan(context: InstallContext): Plan;
   planRemoval(context: InstallContext): Plan;
+  /**
+   * Whether an `okfctl` install is already present for this host, checked
+   * against an artifact only an install creates — never a config file's mere
+   * existence, which frequently predates and has nothing to do with `okfctl`.
+   */
+  isInstalled(context: InstallContext): boolean;
 }
 
 /** Apply a plan. Callers preview first; this only writes. */

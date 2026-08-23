@@ -139,6 +139,7 @@ Every command also takes `--dumps-dir <dir>` and `--drafts-dir <dir>` if `dumps/
 | Command | Purpose |
 |---|---|
 | `okfctl init [dir]` | Scaffold a bundle, `--register` it as this machine's knowledge base, `--agent` to wire a coding agent to it. |
+| `okfctl update [dir]` | Refresh exactly the hosts already installed for a bundle — current skills, commands, and hook config — without naming `--agent` again. Preserves each host's installed `--capture-every` interval unless overridden. |
 | `okfctl capture` | Low-ceremony capture into the dumps area: title, actor and a body, placement deferred. |
 | `okfctl refine <source...>` | Turn one or more dumps into a typed, titled entry in the drafts area, citing what it drew from. |
 | `okfctl move <from> <to>` | Relocate a concept, carrying its inbound links, indexes and log with it. Not a promotion. |
@@ -287,6 +288,23 @@ can hold a user in a conversation may only ever fail open.
 with `-n`, additive, idempotent, never destructive, and removable with `--remove` — which
 takes back both scopes, deletes files that existed only to hold what it installed, prunes
 the directories it created, and leaves your own settings and the bundle itself alone.
+
+**Keeping an installed host current.** Every skill and hook changes as `okfctl` changes —
+`okfctl update [dir]` refreshes exactly the hosts already installed for that bundle
+(current skills, current commands, current hook config) without naming `--agent` again.
+Detection is based on an artifact only an install creates (the distributed capture skill,
+or the upserted instructions section), never on a config file's mere existence — a
+pre-existing `~/.claude/settings.json` from unrelated settings is never mistaken for an
+install. `update` preserves each hook host's currently-configured `--capture-every`
+interval by default; pass `--capture-every <n>` to apply a new one to every host it
+touches. It never installs a new host, never scaffolds bundle files, and never touches
+registration — for adding a host, use `init --agent` instead.
+
+```bash
+okfctl update                          # refresh whatever's already installed here
+okfctl update -n                       # preview first
+okfctl update --capture-every 10       # also change the interval on every host touched
+```
 
 Run `okfctl <command> --help` for the full flag list, and see
 [docs/design.md](docs/design.md) for what each command writes and why.
