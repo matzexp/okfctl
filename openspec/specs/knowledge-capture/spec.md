@@ -3,37 +3,37 @@
 ## Purpose
 
 Give knowledge produced in a live agent session a cheap, honest way into a bundle: a
-drafts area that holds captured material whose final placement and shape are not yet
+dumps area that holds captured material whose final placement and shape are not yet
 decided, and a creation verb that writes into it without demanding answers the author does
 not have yet.
 
 ## Requirements
 
-### Requirement: The Drafts Area
+### Requirement: The Dumps Area
 
-The system SHALL treat one directory in a bundle as the drafts area, defaulting to
-`drafts/` at the bundle root and overridable by the caller, and SHALL identify membership
+The system SHALL treat one directory in a bundle as the dumps area, defaulting to
+`dumps/` at the bundle root and overridable by the caller, and SHALL identify membership
 by path prefix.
 
 #### Scenario: Default location
 
-- **WHEN** no drafts directory is specified
-- **THEN** `drafts/` relative to the bundle root is the drafts area
+- **WHEN** no dumps directory is specified
+- **THEN** `dumps/` relative to the bundle root is the dumps area
 
 #### Scenario: Nested concepts are in the area
 
-- **WHEN** a concept's id is `drafts/infra/gateway` and the drafts area is `drafts`
-- **THEN** that concept is in the drafts area
+- **WHEN** a concept's id is `dumps/infra/gateway` and the dumps area is `dumps`
+- **THEN** that concept is in the dumps area
 
 #### Scenario: An overridden area
 
 - **WHEN** the caller names a different directory
-- **THEN** that directory is the drafts area for every command in the invocation, and
-  `drafts/` carries no special meaning
+- **THEN** that directory is the dumps area for every command in the invocation, and
+  `dumps/` carries no special meaning
 
-#### Scenario: A bundle with no drafts area
+#### Scenario: A bundle with no dumps area
 
-- **WHEN** the drafts directory does not exist
+- **WHEN** the dumps directory does not exist
 - **THEN** commands that only read report an empty area rather than an error, and no
   directory is created until something is captured
 
@@ -57,18 +57,18 @@ SHALL NOT write a document that any OKF consumer would read as non-conformant.
 #### Scenario: A dump is findable
 
 - **WHEN** an index is regenerated after a capture
-- **THEN** the dump appears in the drafts area's `index.md` like any other concept
+- **THEN** the dump appears in the dumps area's `index.md` like any other concept
 
 ### Requirement: Low-Ceremony Capture
 
 The system SHALL provide a capture verb that requires only a title, an actor, and a body,
-defaulting the target to the drafts area, the type to a provisional value, and the id to the
+defaulting the target to the dumps area, the type to a provisional value, and the id to the
 generated scheme, and SHALL accept the body on standard input.
 
 #### Scenario: Minimal invocation
 
 - **WHEN** the caller supplies a title, an actor, and a body on standard input
-- **THEN** a concept is written into the drafts area with a generated id, a provisional
+- **THEN** a concept is written into the dumps area with a generated id, a provisional
   type, and the supplied body as its content
 
 #### Scenario: The title names the concept without identifying it
@@ -89,10 +89,10 @@ generated scheme, and SHALL accept the body on standard input.
 - **WHEN** the caller supplies a type
 - **THEN** that value is written unchanged and no provisional default is applied
 
-#### Scenario: An explicit target outside the drafts area
+#### Scenario: An explicit target outside the dumps area
 
 - **WHEN** the caller names a target directory
-- **THEN** the dump is written there instead, and the drafts area is not involved
+- **THEN** the dump is written there instead, and the dumps area is not involved
 
 #### Scenario: An explicit id is honored
 
@@ -210,7 +210,7 @@ group together, and no generated id can collide with one already present.
 
 #### Scenario: The scheme does not depend on the directory
 
-- **WHEN** a caller directs a capture outside the drafts area
+- **WHEN** a caller directs a capture outside the dumps area
 - **THEN** the generated id has the same form, because a naming rule with an exception is a
   rule callers get wrong
 
