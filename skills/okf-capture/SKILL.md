@@ -43,10 +43,27 @@ placement you already know; this is for knowledge you have and cannot yet file.
    - **A negative result**, when an approach was tried and specifically ruled out — this
      saves the next session from repeating the same dead end, and is easy to skip because it
      feels like "nothing happened."
+   - **A mistake caused by this local setup or this org's own conventions**, when a
+     technology behaved correctly but a *company-specific* or *this-machine-specific*
+     condition made the obvious approach fail — a proxy, an internal registry mirror, a
+     pinned internal fork, a naming or folder convention this repo enforces that upstream
+     docs know nothing about, a permission or network policy unique to this environment.
+     This is the highest-value category precisely because it is invisible to generic
+     documentation, generic training data, and the technology's own docs — nothing outside
+     this bundle will ever record it, so if it is not captured here it will be rediscovered
+     the same expensive way every time. Name the generic symptom (what upstream docs would
+     lead you to expect) and the local cause that actually explains it, not just "it didn't
+     work."
 
    Not durable: what you did, which files you edited, what the user asked for, or anything
    the repository already records at a glance. A restatement of code is not knowledge about
-   it — knowledge is the part that is not visible by reading the code.
+   it — knowledge is the part that is not visible by reading the code. This cuts hardest
+   against generic technology facts: a library's public API contract, a language's own
+   semantics, a framework default documented in its own README, an error message that is
+   the technology working as designed — an agent reading the code, the dependency, or the
+   upstream docs gets these back for free, at no cost, whenever it needs them, so capturing
+   them is pure inbox noise, never a shortcut. The bar is not "is this true and useful" —
+   it is "is this bundle the only place this fact exists."
 
    **If nothing qualifies, write nothing and say so in one line.** Declining is the right
    answer more often than not. An inbox of noise is worse than an empty one, and every
