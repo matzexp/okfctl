@@ -3,12 +3,14 @@ import type { Bundle } from './bundle.ts';
 import type { Concept } from './concept.ts';
 
 /**
- * The holding area for captured knowledge whose placement is not yet decided.
+ * The holding area for refined, typed entries that are not yet placed in the corpus.
  *
  * OKF already distinguishes trust not yet earned (`status: draft`, SPEC §5.4).
- * This directory carries a different axis: a captured dump's type is a guess and
- * its directory is a parking space, so it is a different backlog worked by a
- * different verb (`move`). The spec names no such directory — this is ours.
+ * This directory carries a different axis: a refined entry's placement in the
+ * corpus is still undecided, so it is a different backlog worked by a different
+ * verb (`move`). The spec names no such directory — this is ours. Distinct from
+ * `dumps.ts`, which holds the raw, unrefined captures a concept here was refined
+ * from.
  */
 export const DEFAULT_DRAFTS_DIR = 'drafts';
 

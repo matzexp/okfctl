@@ -110,7 +110,7 @@ export function captureInstructions(command: string): string {
     '',
     'Summarize so a reader who was not in the session can act on it; do not paste the',
     'transcript. Record yourself as the producer, never the user (SPEC §7). Leave the type',
-    'and placement alone unless you are sure — the capture lands in the drafts area exactly',
+    'and placement alone unless you are sure — the capture lands in the dumps area exactly',
     'so a human can decide later.',
     '',
     'If nothing durable came out of the session, write nothing. An inbox of noise is worse',

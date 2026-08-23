@@ -1,6 +1,6 @@
 ---
 name: okf-capture
-description: Capture knowledge established in a live session into an OKF bundle's drafts area as raw, unreviewed material. Use when a session produces a decision, a finding, a constraint, or an explanation worth keeping and its final placement is not yet decided — or when a capture hook asks whether the turn produced anything durable.
+description: Capture knowledge established in a live session into an OKF bundle's dumps area as raw, unreviewed material. Use when a session produces a decision, a finding, a constraint, or an explanation worth keeping and its final placement is not yet decided — or when a capture hook asks whether the turn produced anything durable.
 allowed-tools: Bash(okfctl:*), Bash(okf:*), Read, Glob, Grep
 license: MIT
 compatibility: Requires the okfctl CLI.
@@ -9,10 +9,11 @@ metadata:
   version: "1.0"
 ---
 
-Summarize what this session established and write it into the drafts area.
+Summarize what this session established and write it into the dumps area.
 
-This is the low-ceremony end of the lifecycle. `okf-ingest` is for knowledge whose type and
-placement you already know; this is for knowledge you have and cannot yet file.
+This is the low-ceremony end of the lifecycle. `okf-refine` turns a dump into a typed,
+titled entry once someone works the inbox; `okf-ingest` is for knowledge whose type and
+placement you already know. This skill is for knowledge you have and cannot yet file.
 
 **Steps**
 
@@ -122,9 +123,9 @@ placement you already know; this is for knowledge you have and cannot yet file.
    for `--id` only when the user has told you what to call it.
 
    Leave `--type` alone unless you are certain. The provisional type is honest about what
-   it is, and the drafts area exists precisely so a human decides type and placement later.
-   Use `--to` only when placement is genuinely already settled — at which point `okf-ingest`
-   is the better workflow.
+   it is, and the dumps area exists precisely so a human (or `okf-refine`) decides type and
+   placement later. Use `--to` only when placement is genuinely already settled — at which
+   point `okf-ingest` is the better workflow.
 
    `--dry-run` shows the resolved path and frontmatter first.
 

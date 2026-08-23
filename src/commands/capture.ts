@@ -3,7 +3,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { loadBundle } from '../core/bundle.ts';
 import { commit } from '../core/commit.ts';
 import { createConcept, serializeConcept } from '../core/concept.ts';
-import { resolveDraftsDir } from '../core/drafts.ts';
+import { resolveDumpsDir } from '../core/dumps.ts';
 import { ACTOR_FORMS, isValidActor, isoDay } from '../core/lifecycle.ts';
 import { originSource, readOrigin } from '../core/origin.ts';
 import { cyan, dim, green, red } from '../core/term.ts';
@@ -12,14 +12,14 @@ import { cyan, dim, green, red } from '../core/term.ts';
  * The type a dump opens with when the caller has no better answer. SPEC §11
  * requires the key, and §4.1 leaves the vocabulary open — but an absent type is
  * an error to every consumer, so a provisional value beats no value. It is
- * provisional precisely because the document sits in the drafts area to have
- * that answer revisited by `move`.
+ * provisional precisely because the document sits in the dumps area to have
+ * that answer revisited by `refine` or `move`.
  */
 export const PROVISIONAL_TYPE = 'Note';
 
 export interface CaptureOptions {
   bundle: string;
-  draftsDir?: string;
+  dumpsDir?: string;
   title?: string;
   type?: string;
   description?: string;
@@ -61,15 +61,15 @@ export function runCapture(options: CaptureOptions): number {
     return 1;
   }
 
-  let draftsDir: string;
+  let dumpsDir: string;
   try {
-    draftsDir = resolveDraftsDir(bundle.root, options.draftsDir);
+    dumpsDir = resolveDumpsDir(bundle.root, options.dumpsDir);
   } catch (error) {
     console.error(red((error as Error).message));
     return 1;
   }
 
-  const dir = options.to?.trim().replace(/^\.?\//, '').replace(/\/+$/, '') || draftsDir;
+  const dir = options.to?.trim().replace(/^\.?\//, '').replace(/\/+$/, '') || dumpsDir;
 
   // An explicit id says "I have decided this name"; anything else is generated.
   // A title chosen in one line is a poor thing to harden into a path every link

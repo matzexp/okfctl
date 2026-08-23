@@ -38,8 +38,8 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
    Some bundles state their placement rule in a root guide or `README`. Read it if present
    and follow it.
 
-   A bundle with no corpus is the exception: `drafts/` and nothing else means there is no
-   convention to match, and the first concept filed invents one. Do not invent it silently.
+   A bundle with no corpus is the exception: `dumps/` and `drafts/` and nothing else means
+   there is no convention to match, and the first concept filed invents one. Do not invent it silently.
    Propose a layout, ask, and then record the answer as a concept, so the next agent can
    infer the rule the way this step assumes it can. Sorting by subject domain and sorting
    by concept type are both coherent; a bundle that does half of each is not, and nothing

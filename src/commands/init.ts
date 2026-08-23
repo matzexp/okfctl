@@ -2,12 +2,14 @@ import { existsSync, mkdirSync, readdirSync, rmSync, rmdirSync, writeFileSync } 
 import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { resolveDraftsDir } from '../core/drafts.ts';
+import { resolveDumpsDir } from '../core/dumps.ts';
 import { isBundleRoot, readConfig, registeredBundle, writeConfig } from '../core/userconfig.ts';
 import { findAdapter, ADAPTERS } from '../core/agents/hosts.ts';
 import type { Plan } from '../core/agents/adapter.ts';
 import { bold, cyan, dim, green, red, yellow } from '../core/term.ts';
 
 export interface InitOptions {
+  dumpsDir?: string;
   draftsDir?: string;
   register?: boolean;
   agent?: string[];
@@ -48,9 +50,11 @@ export function runInit(target: string, options: InitOptions): number {
     return runHosts(hosts, options, every, true, root);
   }
 
+  let dumpsDir: string;
   let draftsDir: string;
   try {
     // Resolve against the intended root even before it exists.
+    dumpsDir = resolveDumpsDir(root, options.dumpsDir);
     draftsDir = resolveDraftsDir(root, options.draftsDir);
   } catch (error) {
     console.error(red((error as Error).message));
@@ -61,6 +65,7 @@ export function runInit(target: string, options: InitOptions): number {
     { path: root, kind: 'directory' },
     { path: join(root, 'index.md'), kind: 'file', contents: rootIndex(basename(root)) },
     { path: join(root, 'log.md'), kind: 'file', contents: rootLog() },
+    { path: join(root, dumpsDir), kind: 'directory' },
     { path: join(root, draftsDir), kind: 'directory' },
   ];
 

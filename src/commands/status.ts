@@ -1,16 +1,19 @@
 import { loadBundle } from '../core/bundle.ts';
 import { conceptTitle } from '../core/concept.ts';
 import { inDrafts, resolveDraftsDir } from '../core/drafts.ts';
+import { inDumps, resolveDumpsDir } from '../core/dumps.ts';
 import { generatedAt, health, type Health, type Status, type TrustTier } from '../core/lifecycle.ts';
 import { bold, cyan, dim, green, red, table, yellow } from '../core/term.ts';
 
 export interface StatusOptions {
   bundle: string;
+  dumpsDir?: string;
   draftsDir?: string;
   stale?: boolean;
   drifted?: boolean;
   draft?: boolean;
   unverified?: boolean;
+  dumps?: boolean;
   drafts?: boolean;
   all?: boolean;
   json?: boolean;
@@ -21,9 +24,11 @@ interface Row extends Health {
   title: string;
   type: string;
   flags: string[];
-  /** In the drafts area: reported through the inbox rather than the attention list. */
+  /** In the dumps area: reported through the dumps inbox rather than the attention list. */
+  inDumps: boolean;
+  /** In the drafts area: reported through the drafts inbox rather than the attention list. */
   inDrafts: boolean;
-  /** `generated.at`, used to age the inbox. */
+  /** `generated.at`, used to age either inbox. */
   captured: string | null;
 }
 
@@ -31,8 +36,10 @@ export function runStatus(options: StatusOptions): number {
   const bundle = loadBundle(options.bundle);
   const today = new Date();
 
+  let dumpsDir: string;
   let draftsDir: string;
   try {
+    dumpsDir = resolveDumpsDir(bundle.root, options.dumpsDir);
     draftsDir = resolveDraftsDir(bundle.root, options.draftsDir);
   } catch (error) {
     console.error(red((error as Error).message));
@@ -53,6 +60,7 @@ export function runStatus(options: StatusOptions): number {
       title: conceptTitle(concept),
       type: typeof concept.data.type === 'string' ? concept.data.type : '(none)',
       flags,
+      inDumps: inDumps(concept.id, dumpsDir),
       inDrafts: inDrafts(concept.id, draftsDir),
       captured: at ? at.toISOString() : null,
     };
@@ -61,7 +69,7 @@ export function runStatus(options: StatusOptions): number {
   const filtered = applyFilters(rows, options);
 
   if (options.json) {
-    console.log(JSON.stringify({ root: bundle.root, draftsDir, concepts: filtered }, null, 2));
+    console.log(JSON.stringify({ root: bundle.root, dumpsDir, draftsDir, concepts: filtered }, null, 2));
     return 0;
   }
 
@@ -69,13 +77,15 @@ export function runStatus(options: StatusOptions): number {
 
   if (!hasFilter(options)) {
     printSummary(rows);
-    printInbox(rows, draftsDir);
+    printInbox(rows, 'inDumps', dumpsDir);
+    printInbox(rows, 'inDrafts', draftsDir);
 
-    // Every captured dump is draft and unverified on arrival, so leaving them in
-    // the attention list would bury whatever is actually rotting. The inbox line
-    // above always names them, so nothing is hidden — only moved.
+    // Every concept in either inbox is draft and unverified on arrival, so
+    // leaving them in the attention list would bury whatever is actually
+    // rotting. The inbox lines above always name them, so nothing is hidden —
+    // only moved.
     const attention = rows.filter(
-      (row) => row.flags.length > 0 && (options.all === true || !row.inDrafts),
+      (row) => row.flags.length > 0 && (options.all === true || (!row.inDumps && !row.inDrafts)),
     );
     if (attention.length === 0) {
       console.log(green('\nNothing needs attention.'));
@@ -90,15 +100,16 @@ export function runStatus(options: StatusOptions): number {
     console.log(dim('No concepts match those filters.'));
     return 0;
   }
-  // A captured concept's id is generated, so the inbox listing has to carry the
-  // title — a column of dates and sequence numbers could not be read.
-  printRows(filtered, options.drafts === true);
+  // A dumps- or drafts-area concept's id is generated or title-derived rather
+  // than meaningful on its own, so either inbox listing carries the title.
+  printRows(filtered, options.dumps === true || options.drafts === true);
   return 0;
 }
 
 function hasFilter(options: StatusOptions): boolean {
   return Boolean(
-    options.stale || options.drifted || options.draft || options.unverified || options.drafts,
+    options.stale || options.drifted || options.draft || options.unverified ||
+    options.dumps || options.drafts,
   );
 }
 
@@ -109,20 +120,23 @@ function applyFilters(rows: Row[], options: StatusOptions): Row[] {
     (options.drifted === true && row.drifted) ||
     (options.draft === true && row.status === 'draft') ||
     (options.unverified === true && row.tier === 'unverified') ||
+    (options.dumps === true && row.inDumps) ||
     (options.drafts === true && row.inDrafts),
   );
 }
 
 /**
- * The inbox line. An inbox that is never emptied is worse than no inbox, because
- * it launders "we wrote it down" into "we know it" — so the count and the age of
- * the oldest capture are printed on every unfiltered run, and cannot be missed.
+ * An inbox line, for either the dumps area or the drafts area. An inbox that is
+ * never emptied is worse than no inbox, because it launders "we wrote it down"
+ * into "we know it" — so the count and the age of the oldest entry are printed
+ * on every unfiltered run, and cannot be missed. The two inboxes are always
+ * reported on separate lines, never merged: they are different backlogs.
  */
-function printInbox(rows: Row[], draftsDir: string, today = new Date()): void {
-  const drafts = rows.filter((row) => row.inDrafts);
-  if (drafts.length === 0) return;
+function printInbox(rows: Row[], key: 'inDumps' | 'inDrafts', dir: string, today = new Date()): void {
+  const members = rows.filter((row) => row[key]);
+  if (members.length === 0) return;
 
-  const times = drafts
+  const times = members
     .map((row) => (row.captured ? Date.parse(row.captured) : Number.NaN))
     .filter((time) => !Number.isNaN(time));
   const oldest = times.length > 0 ? Math.min(...times) : null;
@@ -130,9 +144,10 @@ function printInbox(rows: Row[], draftsDir: string, today = new Date()): void {
     ? 'age unknown'
     : `oldest ${Math.floor((today.getTime() - oldest) / 86_400_000)}d`;
 
+  const verb = key === 'inDumps' ? 'captured' : 'refined';
   console.log(table([[
-    dim('Inbox'),
-    `${draftsDir}/ ${drafts.length} captured   ${dim(age)}`,
+    dim(key === 'inDumps' ? 'Dumps' : 'Drafts'),
+    `${dir}/ ${members.length} ${verb}   ${dim(age)}`,
   ]]));
 }
 
@@ -159,7 +174,7 @@ function printSummary(rows: Row[]): void {
 /**
  * The attention list keeps its four columns: a corpus concept's id is meaningful
  * by construction and often says more than its title would. The title is added
- * only where ids are generated, which is the drafts inbox.
+ * only where ids are generated or title-derived, which is either inbox.
  */
 function printRows(rows: Row[], withTitle = false): void {
   if (!withTitle) {

@@ -42,16 +42,16 @@ function withLinks(root: string): void {
     '',
     '# Linker',
     '',
-    'Root absolute: [a](/drafts/retry-budget.md)',
-    'Relative: [b](../drafts/retry-budget.md)',
-    'With fragment: [c](/drafts/retry-budget.md#retry-budgets-are-shared-across-a-service)',
-    'Already broken: [d](/drafts/gone-missing.md)',
-    'External: [e](https://example.com/drafts/retry-budget.md)',
-    'Bare prose mention of drafts/retry-budget.md stays put.',
-    'Inline code `drafts/retry-budget.md` stays put.',
+    'Root absolute: [a](/dumps/retry-budget.md)',
+    'Relative: [b](../dumps/retry-budget.md)',
+    'With fragment: [c](/dumps/retry-budget.md#retry-budgets-are-shared-across-a-service)',
+    'Already broken: [d](/dumps/gone-missing.md)',
+    'External: [e](https://example.com/dumps/retry-budget.md)',
+    'Bare prose mention of dumps/retry-budget.md stays put.',
+    'Inline code `dumps/retry-budget.md` stays put.',
     '',
     '```sh',
-    'cat drafts/retry-budget.md',
+    'cat dumps/retry-budget.md',
     '```',
     '',
   ].join('\n'));
@@ -59,16 +59,16 @@ function withLinks(root: string): void {
 
 test('a move changes the id and leaves nothing behind', () => {
   const root = sandbox();
-  const code = quiet(() => runMove('drafts/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
+  const code = quiet(() => runMove('dumps/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
   assert.equal(code, 0);
-  assert.equal(existsSync(join(root, 'drafts/retry-budget.md')), false);
+  assert.equal(existsSync(join(root, 'dumps/retry-budget.md')), false);
   assert.ok(existsSync(join(root, 'metrics/retry-budget.md')));
   assert.equal(findConcept(loadBundle(root), 'metrics/retry-budget').id, 'metrics/retry-budget');
 });
 
 test('a move is not a promotion', () => {
   const root = sandbox();
-  quiet(() => runMove('drafts/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
+  quiet(() => runMove('dumps/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
   const raw = readFileSync(join(root, 'metrics/retry-budget.md'), 'utf8');
   assert.match(raw, /^status: draft$/m);
   assert.doesNotMatch(raw, /^verified:/m);
@@ -84,7 +84,7 @@ test('unknown producer keys survive a move', () => {
 test('resolved inbound links follow the move, in the form the author used', () => {
   const root = sandbox();
   withLinks(root);
-  quiet(() => runMove('drafts/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
+  quiet(() => runMove('dumps/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
   const raw = readFileSync(join(root, 'metrics/linker.md'), 'utf8');
 
   assert.match(raw, /\[a\]\(\/metrics\/retry-budget\.md\)/, 'root-absolute stays root-absolute');
@@ -95,20 +95,20 @@ test('resolved inbound links follow the move, in the form the author used', () =
 test('an already-broken link is not touched', () => {
   const root = sandbox();
   withLinks(root);
-  quiet(() => runMove('drafts/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
-  assert.match(readFileSync(join(root, 'metrics/linker.md'), 'utf8'), /\[d\]\(\/drafts\/gone-missing\.md\)/);
+  quiet(() => runMove('dumps/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
+  assert.match(readFileSync(join(root, 'metrics/linker.md'), 'utf8'), /\[d\]\(\/dumps\/gone-missing\.md\)/);
 });
 
 test('prose, code spans, fences and external links are left alone', () => {
   const root = sandbox();
   withLinks(root);
-  quiet(() => runMove('drafts/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
+  quiet(() => runMove('dumps/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
   const raw = readFileSync(join(root, 'metrics/linker.md'), 'utf8');
 
-  assert.match(raw, /\[e\]\(https:\/\/example\.com\/drafts\/retry-budget\.md\)/);
-  assert.match(raw, /Bare prose mention of drafts\/retry-budget\.md stays put\./);
-  assert.match(raw, /Inline code `drafts\/retry-budget\.md` stays put\./);
-  assert.match(raw, /cat drafts\/retry-budget\.md/);
+  assert.match(raw, /\[e\]\(https:\/\/example\.com\/dumps\/retry-budget\.md\)/);
+  assert.match(raw, /Bare prose mention of dumps\/retry-budget\.md stays put\./);
+  assert.match(raw, /Inline code `dumps\/retry-budget\.md` stays put\./);
+  assert.match(raw, /cat dumps\/retry-budget\.md/);
 });
 
 test('a move breaks no link that resolved before it', () => {
@@ -123,23 +123,23 @@ test('a move breaks no link that resolved before it', () => {
     ).length;
 
   const before = unresolved(root);
-  quiet(() => runMove('drafts/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
+  quiet(() => runMove('dumps/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
   assert.equal(unresolved(root), before, 'a relocation must not orphan a link that resolved');
 });
 
 test('both indexes are regenerated', () => {
   const root = sandbox();
-  quiet(() => runMove('drafts/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
-  assert.doesNotMatch(readFileSync(join(root, 'drafts/index.md'), 'utf8'), /retry-budget/);
+  quiet(() => runMove('dumps/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
+  assert.doesNotMatch(readFileSync(join(root, 'dumps/index.md'), 'utf8'), /retry-budget/);
   assert.match(readFileSync(join(root, 'metrics/index.md'), 'utf8'), /retry-budget\.md/);
 });
 
 test('the move is logged with both ids', () => {
   const root = sandbox();
-  quiet(() => runMove('drafts/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
+  quiet(() => runMove('dumps/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
   const log = readFileSync(join(root, 'log.md'), 'utf8');
   assert.match(log, /\*\*Moved\*\*/);
-  assert.match(log, /drafts\/retry-budget/);
+  assert.match(log, /dumps\/retry-budget/);
   assert.match(log, /metrics\/retry-budget/);
 });
 
@@ -154,8 +154,8 @@ test('an existing target is refused and nothing changes', () => {
 
 test('a reserved target is refused', () => {
   const root = sandbox();
-  assert.equal(quiet(() => runMove('drafts/retry-budget', 'metrics/index', { bundle: root, by: BY })), 1);
-  assert.equal(quiet(() => runMove('drafts/retry-budget', 'metrics/log', { bundle: root, by: BY })), 1);
+  assert.equal(quiet(() => runMove('dumps/retry-budget', 'metrics/index', { bundle: root, by: BY })), 1);
+  assert.equal(quiet(() => runMove('dumps/retry-budget', 'metrics/log', { bundle: root, by: BY })), 1);
 });
 
 test('an ambiguous or missing source is refused with the candidates', () => {
@@ -166,13 +166,13 @@ test('an ambiguous or missing source is refused with the candidates', () => {
 
 test('a missing actor is refused', () => {
   const root = sandbox();
-  assert.equal(quiet(() => runMove('drafts/retry-budget', 'metrics/retry-budget', { bundle: root })), 1);
-  assert.ok(existsSync(join(root, 'drafts/retry-budget.md')));
+  assert.equal(quiet(() => runMove('dumps/retry-budget', 'metrics/retry-budget', { bundle: root })), 1);
+  assert.ok(existsSync(join(root, 'dumps/retry-budget.md')));
 });
 
 test('a directory target keeps the concept stem', () => {
   const root = sandbox();
-  quiet(() => runMove('drafts/retry-budget', 'metrics/', { bundle: root, by: BY }));
+  quiet(() => runMove('dumps/retry-budget', 'metrics/', { bundle: root, by: BY }));
   assert.ok(existsSync(join(root, 'metrics/retry-budget.md')));
 });
 
@@ -182,9 +182,9 @@ test('a dry run writes nothing', () => {
   const linker = readFileSync(join(root, 'metrics/linker.md'), 'utf8');
   const log = readFileSync(join(root, 'log.md'), 'utf8');
 
-  const code = quiet(() => runMove('drafts/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY, dryRun: true }));
+  const code = quiet(() => runMove('dumps/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY, dryRun: true }));
   assert.equal(code, 0);
-  assert.ok(existsSync(join(root, 'drafts/retry-budget.md')));
+  assert.ok(existsSync(join(root, 'dumps/retry-budget.md')));
   assert.equal(existsSync(join(root, 'metrics/retry-budget.md')), false);
   assert.equal(readFileSync(join(root, 'metrics/linker.md'), 'utf8'), linker);
   assert.equal(readFileSync(join(root, 'log.md'), 'utf8'), log);
@@ -201,10 +201,10 @@ test('a failure partway through restores the bundle', () => {
   writeFileSync(join(root, 'metrics/placeholder.md'), '---\ntype: Metric\ntitle: P\n---\n');
   chmodSync(join(root, 'metrics'), 0o555);
   try {
-    const code = quiet(() => runMove('drafts/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
+    const code = quiet(() => runMove('dumps/retry-budget', 'metrics/retry-budget', { bundle: root, by: BY }));
     if (code === 0) return; // running as root; the write could not be blocked
     assert.equal(readFileSync(join(root, 'metrics/linker.md'), 'utf8'), linkerBefore, 'link rewrite rolled back');
-    assert.ok(existsSync(join(root, 'drafts/retry-budget.md')), 'source restored');
+    assert.ok(existsSync(join(root, 'dumps/retry-budget.md')), 'source restored');
   } finally {
     chmodSync(join(root, 'metrics'), 0o755);
   }
@@ -214,7 +214,7 @@ test('inboundLinks reports only what resolved, with offsets into the body', () =
   const root = sandbox();
   withLinks(root);
   const bundle = loadBundle(root);
-  const found = inboundLinks(bundle.concepts, 'drafts/retry-budget.md', root);
+  const found = inboundLinks(bundle.concepts, 'dumps/retry-budget.md', root);
   assert.equal(found.length, 3, 'three resolved links; the broken, external and prose forms are not links to it');
 
   const linker = bundle.concepts.find((c) => c.id === 'metrics/linker')!;

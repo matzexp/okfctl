@@ -20,7 +20,8 @@ okfctl status      # what is stale, drifted, unverified, or still a draft
 okfctl check       # conformance errors and advisory lint warnings
 okfctl refs        # do citations and internal links still resolve?
 okfctl search <q>  # find concepts by relevance, frontmatter and body together
-okfctl capture     # dump what a session established into the drafts area
+okfctl capture     # dump what a session established into the dumps area
+okfctl refine      # turn a dump into a typed, titled entry in the drafts area
 ```
 
 ## Why
@@ -73,9 +74,10 @@ okfctl init path/to/bundle          # scaffold a new, empty bundle
 okfctl init path/to/bundle -n       # preview first: list what would be created
 ```
 
-This creates the three things an OKF bundle needs to exist at all: `index.md` (the
-bundle-root index, SPEC §3.1), `log.md` (the dated activity log, SPEC §9), and an empty
-`drafts/` directory for low-ceremony capture. Nothing else — no example concepts, no
+This creates the things an OKF bundle needs to exist at all: `index.md` (the
+bundle-root index, SPEC §3.1), `log.md` (the dated activity log, SPEC §9), an empty
+`dumps/` directory for low-ceremony capture, and an empty `drafts/` directory for entries
+refined from a dump but not yet placed. Nothing else — no example concepts, no
 directory layout beyond that, because the spec does not prescribe one and `okfctl` does
 not invent conventions for a bundle to grow into on its own. Run it again against an
 existing bundle and it reports what already exists rather than overwriting it — `init` is
@@ -110,28 +112,35 @@ okfctl init --agent claude-code --agent codex            # wire the agents to it
 okfctl init --agent claude-code --capture-every 5 -n     # preview, prompting every 5th turn
 ```
 
-Captured knowledge lands in `drafts/` as a conformant concept — `status: draft`, no
+Captured knowledge lands in `dumps/` as a conformant concept — `status: draft`, no
 `verified`, the agent recorded as its producer, and the repository and session it came from
 recorded in `sources[]`. Its id is generated as `<date>-<session>-<n>`
-(`drafts/2026-08-22-45fcb979-1.md`): the date sorts, the session groups a conversation's
+(`dumps/2026-08-22-45fcb979-1.md`): the date sorts, the session groups a conversation's
 captures, and the sequence means a capture can never collide with — and so never destroy —
-one already there. Read the inbox with `okfctl status --drafts`, which prints titles. It is usable and findable, but nobody has vouched for it. A human empties the
-inbox later with `okfctl move`, or by merging it into a concept that already exists.
+one already there. Read the inbox with `okfctl status --dumps`, which prints titles. It is
+usable and findable, but nobody has typed, titled, or vouched for it yet.
+
+From there, `okfctl refine` turns a dump into a typed, titled entry in `drafts/`, citing the
+dump it drew from rather than claiming first-hand authorship — one dump can become several
+entries (split), or several dumps can become one (consolidate). A human (or `okf-review`)
+empties the drafts inbox later with `okfctl move`, or by merging it into a concept that
+already exists.
 
 ### Which bundle a command acts on
 
 `--bundle <dir>`, then the bundle you are standing in, then the registered one. The middle
 step matters: working *on* a bundle must never write into a different one.
 
-Every command also takes `--drafts-dir <dir>` if `drafts/` is not where you want the
-holding area.
+Every command also takes `--dumps-dir <dir>` and `--drafts-dir <dir>` if `dumps/` or
+`drafts/` are not where you want those holding areas.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
 | `okfctl init [dir]` | Scaffold a bundle, `--register` it as this machine's knowledge base, `--agent` to wire a coding agent to it. |
-| `okfctl capture` | Low-ceremony capture into the drafts area: title, actor and a body, placement deferred. |
+| `okfctl capture` | Low-ceremony capture into the dumps area: title, actor and a body, placement deferred. |
+| `okfctl refine <source...>` | Turn one or more dumps into a typed, titled entry in the drafts area, citing what it drew from. |
 | `okfctl move <from> <to>` | Relocate a concept, carrying its inbound links, indexes and log with it. Not a promotion. |
 | `okfctl check` | Two-tier conformance + lint. Errors gate CI; warnings inform. |
 | `okfctl status` | Corpus health: trust tiers, stale, draft, drifted, orphans. |
@@ -166,27 +175,45 @@ okfctl init --agent codex --capture-every 5         # prompt every 5th turn
 okfctl init --agent codex --remove                  # take back exactly what was installed
 okfctl capture --title "..." --by agent/1.0 --session <id> --stdin
 okfctl capture --title "..." --by agent/1.0 --id chosen-name --stdin  # name it yourself
-okfctl status --drafts                # drill into the inbox
-okfctl status --all                   # put drafts back in the attention list
-okfctl move drafts/x decisions/x --by human:me      # empty the inbox
+okfctl status --dumps                 # drill into the dumps inbox
+okfctl status --drafts                # drill into the drafts inbox
+okfctl status --all                   # put dumps and drafts back in the attention list
+okfctl refine dumps/x --type Runbook --title "..." --by agent/1.0 --stdin
+okfctl refine dumps/x --type Runbook --title "..." --by agent/1.0 --stdin --consume
+okfctl move drafts/x decisions/x --by human:me      # empty the drafts inbox
 okfctl move drafts/x decisions/ -n    # preview the link rewrites first
 ```
 
-## The drafts area
+## The dumps and drafts areas
 
-OKF already distinguishes trust not yet earned — that is `status: draft`. `drafts/` carries
-a different axis: **placement and shape not yet decided**. A draft decision is placed, typed
-and shaped, and only its trust is pending; a captured dump's type is a guess and its
-directory is a parking space. Different backlog, different verb.
+OKF already distinguishes trust not yet earned — that is `status: draft`. `dumps/` and
+`drafts/` carry a different axis: **placement and shape not yet decided**. A stable decision
+is placed, typed and shaped, and only its trust is pending; a captured dump's type is a
+guess and its directory is a parking space. Different backlog, different verbs.
 
-Everything in it is a real concept: it conforms to §11 on the first write, appears in the
-index, and can be cited. What changes is that `okfctl status` reports it as an **inbox**
-rather than in the attention list — every dump is draft and unverified on arrival, so
-leaving them there would bury whatever is actually rotting. The inbox line always names the
-count and the age of the oldest capture, so nothing is hidden, only moved.
+The two areas are two stages of the same axis, not two names for one thing:
 
-The spec names no such directory. This one is ours, and it is a convention: a bundle whose
-`drafts/` holds ordinary concepts is still perfectly conformant.
+- **`dumps/`** — raw, low-ceremony captures. `okfctl capture` writes here. Placement, type,
+  and shape are all still undecided; the type is a provisional placeholder.
+- **`drafts/`** — refined, typed, titled entries that are not yet placed in the corpus.
+  `okfctl refine` writes here, from one or more `dumps/` concepts, citing what it drew from.
+  Placement is still undecided, but type and shape no longer are.
+
+Everything in both is a real concept: each conforms to §11 on the first write, appears in
+the index, and can be cited. What changes is that `okfctl status` reports each as its own
+**inbox** rather than in the attention list — every entry in either is draft and unverified
+on arrival, so leaving them there would bury whatever is actually rotting. Each inbox line
+always names its count and the age of its oldest entry, so nothing is hidden, only moved —
+and the two are never merged into one figure, since they are different backlogs.
+
+The spec names neither directory. Both are ours, and both are a convention: a bundle whose
+`dumps/` or `drafts/` holds ordinary concepts is still perfectly conformant.
+
+> **Migrating from before `okfctl refine` existed:** `drafts/` used to be the raw capture
+> area (what `dumps/` is now). If you have a bundle with a populated `drafts/` predating
+> this change, run `mv drafts dumps` at the bundle root — or pass `--dumps-dir drafts` to
+> keep the old path without renaming, though a directory named `drafts/` holding raw,
+> unrefined material is exactly the confusion this rename exists to remove.
 
 ## Agent hooks
 
@@ -194,9 +221,9 @@ The spec names no such directory. This one is ours, and it is a convention: a bu
 **user-level** configuration, so it applies in every repository — not just the bundle's own.
 
 It installs at **two scopes**, because the workflows are not used in the same place.
-`okf-capture` goes to user scope so it works in every repository; the five curation
-workflows — triage, ingest, promote, review, deprecate — go **into the bundle**, so they
-load when you open your knowledge base and nowhere else.
+`okf-capture` goes to user scope so it works in every repository; the six curation
+workflows — triage, refine, ingest, promote, review, deprecate — go **into the bundle**, so
+they load when you open your knowledge base and nowhere else.
 
 | | Claude Code | Codex |
 |---|---|---|
@@ -331,8 +358,9 @@ invocable in Claude Code by name as `/okf:<name>`, or selected from its descript
 
 | Skill | For |
 |---|---|
-| `okf-capture` | A session produced something worth keeping. Summarizes it into the drafts area — or declines, which is the right answer more often than not. |
+| `okf-capture` | A session produced something worth keeping. Summarizes it into the dumps area — or declines, which is the right answer more often than not. |
 | `okf-triage` | "How is this bundle doing?" Reports health, names the workflow each finding needs, and writes nothing. |
+| `okf-refine` | The dumps inbox. Turns raw dumps into typed, titled entries in the drafts area — one dump split into several, or several consolidated into one — citing what each drew from. |
 | `okf-ingest` | New knowledge arriving. Matches the bundle's own types and placement, creates through `new`, then writes the body. |
 | `okf-promote` | A draft that has earned trust. Reads it first, establishes a real actor, sets a horizon. |
 | `okf-review` | The stale and drifted backlog, and the drafts inbox. Checks each concept against its `sources[]`, routes to the outcome it actually found, and empties drafts by relocating or merging them. |

@@ -13,7 +13,9 @@ import { runIndex } from './commands/index-gen.ts';
 import { runCatalog } from './commands/catalog.ts';
 import { runSearch, DEFAULT_LIMIT } from './commands/search.ts';
 import { runRefs } from './commands/refs.ts';
+import { runRefine } from './commands/refine.ts';
 import { DEFAULT_DRAFTS_DIR } from './core/drafts.ts';
+import { DEFAULT_DUMPS_DIR } from './core/dumps.ts';
 import { requireBundleDir, resolveBundleDir } from './core/userconfig.ts';
 import { red } from './core/term.ts';
 
@@ -24,7 +26,8 @@ program
   .description('Lifecycle tooling for Open Knowledge Format (OKF) v0.2 bundles')
   .version('0.1.0')
   .option('-b, --bundle <dir>', 'path to the bundle root')
-  .option('--drafts-dir <dir>', 'bundle-relative drafts area', DEFAULT_DRAFTS_DIR);
+  .option('--dumps-dir <dir>', 'bundle-relative dumps area (raw captures)', DEFAULT_DUMPS_DIR)
+  .option('--drafts-dir <dir>', 'bundle-relative drafts area (refined entries)', DEFAULT_DRAFTS_DIR);
 
 const bundleDir = (command: Command): string =>
   (command.optsWithGlobals().bundle as string | undefined) ?? resolveBundleDir();
@@ -32,6 +35,9 @@ const bundleDir = (command: Command): string =>
 /** For verbs that write: no silent fallback to the working directory. */
 const writeBundleDir = (command: Command): string =>
   (command.optsWithGlobals().bundle as string | undefined) ?? requireBundleDir();
+
+const dumpsDir = (command: Command): string =>
+  (command.optsWithGlobals().dumpsDir as string) ?? DEFAULT_DUMPS_DIR;
 
 const draftsDir = (command: Command): string =>
   (command.optsWithGlobals().draftsDir as string) ?? DEFAULT_DRAFTS_DIR;
@@ -48,16 +54,17 @@ program
 
 program
   .command('status')
-  .description('corpus health: trust tiers, staleness, drift, drafts')
+  .description('corpus health: trust tiers, staleness, drift, dumps and drafts inboxes')
   .option('--stale', 'only concepts past stale_after')
   .option('--drifted', 'only concepts edited since their last verification')
   .option('--draft', 'only draft concepts')
   .option('--unverified', 'only concepts with no verified entry')
-  .option('--drafts', 'only the drafts inbox')
-  .option('--all', 'include drafts-area concepts in the attention list')
+  .option('--dumps', 'only the dumps inbox (raw captures)')
+  .option('--drafts', 'only the drafts inbox (refined entries)')
+  .option('--all', 'include dumps- and drafts-area concepts in the attention list')
   .option('--json', 'machine-readable output')
   .action(function (this: Command, options) {
-    exit(runStatus({ bundle: bundleDir(this), draftsDir: draftsDir(this), ...options }));
+    exit(runStatus({ bundle: bundleDir(this), dumpsDir: dumpsDir(this), draftsDir: draftsDir(this), ...options }));
   });
 
 program
@@ -89,7 +96,7 @@ program
   .option('--remove', 'with --agent, take back exactly what was installed')
   .option('-n, --dry-run', 'list every path it would create or edit without writing')
   .action(function (this: Command, dir: string | undefined, options) {
-    exit(runInit(dir ?? '.', { draftsDir: draftsDir(this), ...options }));
+    exit(runInit(dir ?? '.', { dumpsDir: dumpsDir(this), draftsDir: draftsDir(this), ...options }));
   });
 
 program
@@ -103,7 +110,7 @@ program
 
 program
   .command('capture')
-  .description('capture knowledge into the drafts area with the placement deferred')
+  .description('capture knowledge into the dumps area with the placement deferred')
   .requiredOption('--title <text>', 'what was established, as a sentence')
   .requiredOption('--by <actor>', 'producing actor (SPEC 7); never guessed')
   .option('--type <type>', 'concept type; defaults to a provisional one (SPEC 4.1)')
@@ -112,7 +119,7 @@ program
     value.split(',').map((tag) => tag.trim()).filter(Boolean))
   .option('--body <text>', 'the body, written verbatim')
   .option('--stdin', 'read the body from standard input')
-  .option('--to <dir>', 'target directory instead of the drafts area')
+  .option('--to <dir>', 'target directory instead of the dumps area')
   .option('--id <slug>', 'a chosen id instead of the generated one')
   .option('--session <id>', 'agent session that produced it; grouped in the id, recorded as provenance')
   .option('--from <dir>', 'working directory recorded as the origin', process.cwd())
@@ -122,9 +129,34 @@ program
   .action(function (this: Command, options) {
     exit(runCapture({
       bundle: writeBundleDir(this),
-      draftsDir: draftsDir(this),
+      dumpsDir: dumpsDir(this),
       ...options,
       noOrigin: options.origin === false,
+      noLog: options.log === false,
+    }));
+  });
+
+program
+  .command('refine <sources...>')
+  .description('turn one or more dumps into a typed, titled entry in the drafts area')
+  .requiredOption('--type <type>', 'concept type; required, refine has no provisional default')
+  .requiredOption('--title <text>', 'title; required, refine has no provisional default')
+  .requiredOption('--by <actor>', 'refining actor (SPEC 7); never guessed')
+  .option('--description <text>', 'one-line summary')
+  .option('--tags <list>', 'comma-separated tags', (value: string) =>
+    value.split(',').map((tag) => tag.trim()).filter(Boolean))
+  .option('--body <text>', 'the body, written verbatim')
+  .option('--stdin', 'read the body from standard input')
+  .option('--to <dir>', 'target directory instead of the drafts area')
+  .option('--id <slug>', 'a chosen id instead of one derived from the title')
+  .option('--consume', 'remove the named sources after a successful write')
+  .option('--no-log', 'skip the log.md entry')
+  .option('-n, --dry-run', 'show what would be written (and consumed) without writing it')
+  .action(function (this: Command, sources: string[], options) {
+    exit(runRefine(sources, {
+      bundle: writeBundleDir(this),
+      draftsDir: draftsDir(this),
+      ...options,
       noLog: options.log === false,
     }));
   });

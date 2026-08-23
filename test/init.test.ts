@@ -47,6 +47,7 @@ test('init scaffolds a conformant bundle in an empty directory', () => {
 
   assert.match(readFileSync(join(root, 'index.md'), 'utf8'), /^okf_version: "0\.2"$/m);
   assert.ok(existsSync(join(root, 'log.md')));
+  assert.ok(existsSync(join(root, 'dumps')));
   assert.ok(existsSync(join(root, 'drafts')));
   assert.equal(countBy(checkBundle(loadBundle(root)), 'error'), 0);
   assert.equal(isBundleRoot(root), true);
@@ -77,6 +78,7 @@ test('a dry run writes nothing', () => {
   const root = mkdtempSync(join(tmpdir(), 'okfctl-dry-'));
   assert.equal(quiet(() => runInit(root, { dryRun: true, register: true })), 0);
   assert.equal(existsSync(join(root, 'index.md')), false);
+  assert.equal(existsSync(join(root, 'dumps')), false);
   assert.equal(existsSync(join(root, 'drafts')), false);
   assert.equal(registeredBundle(), null, 'a dry run registers nothing either');
 });

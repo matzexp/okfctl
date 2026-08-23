@@ -23,17 +23,17 @@ test('the drafts area defaults to drafts/ at the bundle root', () => {
 
 test('an override replaces the default, and drafts/ then means nothing', () => {
   const root = sandbox();
-  const dir = resolveDraftsDir(root, 'inbox');
-  assert.equal(dir, 'inbox');
-  assert.equal(inDrafts('inbox/thing', dir), true);
-  assert.equal(inDrafts('drafts/gateway-timeout', dir), false);
+  const dir = resolveDraftsDir(root, 'staging');
+  assert.equal(dir, 'staging');
+  assert.equal(inDrafts('staging/thing', dir), true);
+  assert.equal(inDrafts('drafts/timeout-mitigation', dir), false);
 });
 
 test('an override may be nested, absolute, or slash-decorated', () => {
   const root = sandbox();
-  assert.equal(resolveDraftsDir(root, 'scratch/inbox'), 'scratch/inbox');
-  assert.equal(resolveDraftsDir(root, './inbox/'), 'inbox');
-  assert.equal(resolveDraftsDir(root, join(root, 'inbox')), 'inbox');
+  assert.equal(resolveDraftsDir(root, 'scratch/staging'), 'scratch/staging');
+  assert.equal(resolveDraftsDir(root, './staging/'), 'staging');
+  assert.equal(resolveDraftsDir(root, join(root, 'staging')), 'staging');
 });
 
 test('a drafts area outside the bundle is refused', () => {
@@ -52,15 +52,23 @@ test('membership is by path prefix, at any depth', () => {
   assert.equal(inDrafts('metrics/revenue', 'drafts'), false);
 });
 
-test('the fixture drafts area loads as ordinary concepts', () => {
+test('drafts and dumps are independent areas', () => {
+  assert.equal(inDrafts('dumps/gateway-timeout', 'drafts'), false);
+});
+
+test('the fixture drafts area loads as ordinary, refined concepts', () => {
   const root = sandbox();
   const bundle = loadBundle(root);
   const drafts = draftConcepts(bundle, 'drafts');
-  assert.deepEqual(drafts.map((c) => c.id), ['drafts/gateway-timeout', 'drafts/retry-budget']);
-  // Conformant on the first read: they carry a type, like any other concept.
-  assert.equal(drafts[0].data.type, 'Note');
+  assert.deepEqual(drafts.map((c) => c.id), ['drafts/timeout-mitigation']);
+  // Refined: a real type, still status: draft, still unverified — refining is
+  // not verifying.
+  assert.equal(drafts[0].data.type, 'Runbook');
   assert.equal(drafts[0].data.status, 'draft');
   assert.equal(drafts[0].data.verified, undefined);
+  // Carries provenance back to the dump it was refined from.
+  const sources = drafts[0].data.sources as Array<{ resource: string }>;
+  assert.equal(sources[0].resource, 'dumps/gateway-timeout');
 });
 
 test('an absent drafts area reads as empty rather than erroring', () => {

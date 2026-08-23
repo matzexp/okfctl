@@ -27,6 +27,7 @@ export const CAPTURE_SKILL = 'okf-capture';
  */
 export const LIFECYCLE_SKILLS = [
   'okf-triage',
+  'okf-refine',
   'okf-ingest',
   'okf-promote',
   'okf-review',

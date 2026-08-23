@@ -134,8 +134,8 @@ okfctl capture --title "Timeouts are per route" --by claude-code/2.1 --stdin
 `new` requires `--type` because §11 does. `capture` still writes one — it defaults to a
 provisional `Note` when the caller has no better answer. Defaulting rather than requiring is
 the whole difference between the two verbs, and it is justified because the type is
-*explicitly provisional*: the document sits in the drafts area precisely to have that answer
-revisited.
+*explicitly provisional*: the document sits in the dumps area precisely to have that answer
+revisited, by `refine` or by a human.
 
 Rejected: writing frontmatter-less scratch files. They fail §11 rule one on every file, so
 `check` would need an exemption for a directory the spec has never heard of — and every other
@@ -146,7 +146,7 @@ usable — no `type` means no index entry, no catalog row, no citation target.
 
 "Raw" is carried instead by signals that already exist: `status: draft`, an empty `verified`
 so the trust tier reads `unverified` (§5.3), a `generated.by` naming the agent rather than a
-human, and residence in the drafts area.
+human, and residence in the dumps area.
 
 `capture` writes the body, which `new` does not. That is the one place a CLI verb authors
 content, and it does so only by copying bytes it was handed — no templating, no inference.
@@ -158,7 +158,7 @@ once.
 ### The id is generated, not derived from the title
 
 ```
-drafts/2026-08-22-45fcb979-1.md
+dumps/2026-08-22-45fcb979-1.md
 ```
 
 The date sorts, the session prefix groups a conversation's captures, and the sequence makes
@@ -187,9 +187,9 @@ uniqueness, so nothing is bought by faking it.
 naming, because a rule with an exception is a rule callers get wrong. `--id` is the single
 way to say "I have decided this name", and an `--id` already taken still refuses.
 
-Consequence: the id no longer reads as words, so `okfctl status --drafts` prints the title.
-That column is added there and nowhere else — a corpus concept's id is meaningful by
-construction and often says more than its title would.
+Consequence: the id no longer reads as words, so `okfctl status --dumps` prints the title.
+That column is added there (and on `--drafts`, for the same reason) and nowhere else — a
+corpus concept's id is meaningful by construction and often says more than its title would.
 
 **Origin goes in `sources[]`.** A bundle collecting knowledge out of a dozen repositories
 loses the context a reader most needs without it, and §5.1 is where provenance already goes.
@@ -204,28 +204,81 @@ legal under §11's tolerance for unknown keys, but a key only `okfctl` reads is 
 other consumer can act on, which is the same argument that kept `review --outdated` from
 inventing a field.
 
-### The drafts area
+### The dumps and drafts areas
 
-`drafts/` at the bundle root, overridable with `--drafts-dir`, matched by path prefix.
+`dumps/` at the bundle root, overridable with `--dumps-dir`; `drafts/` alongside it,
+overridable with `--drafts-dir`; both matched by path prefix.
+
+`drafts/` was the raw capture area before `okfctl refine` existed — what `dumps/` is now.
+The rename was chosen over adding a differently-named third directory (`staging/` was the
+first draft of this design) because the vocabulary was already half right: the code and
+spec already called a captured artifact "a dump" throughout, only the *directory* was
+misnamed `drafts/`. Reusing `drafts/` for the refined stage also lines the placement axis up
+with the trust axis instead of talking past it: an entry sitting in `drafts/`,
+un-placed-and-unpromoted, is a draft in both senses at once. The cost is a breaking rename
+for any bundle with a populated `drafts/` predating this change — accepted deliberately, see
+the README's migration note, rather than papered over with a compatibility shim.
 
 Rejected: a marker file or a bundle-level config, both of which invent a format to hold one
-value that has a good default. Rejected also: inferring the area from `type: Draft`, which
-would overload §4.1's open vocabulary with a lifecycle signal that `status` already carries.
+value that has a good default. Rejected also: inferring either area from a `type:` value,
+which would overload §4.1's open vocabulary with a lifecycle signal that `status` already
+carries.
 
-What the directory adds over `status: draft` is a *different axis*. A draft decision is
+What the two directories add over `status: draft` is a *different axis*. A draft decision is
 placed, typed and shaped; only its trust is pending, and `promote` settles it. A dump is none
 of those — its type is a guess, its directory is a parking space, and its body may be three
-bullets. Different backlog, different verb.
+bullets. A drafts-area entry is in between: `refine` has settled its type and shape, but not
+its placement. Three points on one axis, a different axis from trust, and each backlog
+worked by a different verb.
 
-`status` reports it as an inbox rather than in the attention list: every dump is draft and
-unverified on arrival, so twenty of them bury whatever is actually rotting. The inbox line is
-printed on every unfiltered run with the age of the oldest capture, so nothing is hidden —
-only moved. `--all` restores the old output. Trust-tier and lifecycle distributions still
-count them, because those are census figures about the bundle and excluding them would
-misreport it.
+`status` reports each as its own inbox rather than in the attention list: every entry in
+either is draft and unverified on arrival, so twenty of them bury whatever is actually
+rotting. Each inbox line is printed on every unfiltered run with its own count and the age of
+its oldest entry, so nothing is hidden — only moved — and the two are never merged into one
+line, because collapsing them would hide which backlog is actually growing. `--all` restores
+the old, unsegregated output. Trust-tier and lifecycle distributions still count both areas,
+because those are census figures about the bundle and excluding them would misreport it.
 
-Rejected: hiding drafts from `index` and `catalog` too. Both answer "what is in this
-bundle", a dump is in the bundle, and hiding it is how it gets forgotten.
+Rejected: hiding either area from `index` and `catalog` too. Both answer "what is in this
+bundle", a dump or a draft entry is in the bundle, and hiding it is how it gets forgotten.
+
+## `refine`
+
+```bash
+okfctl refine dumps/gateway-timeout --type Runbook --title "Mitigate gateway timeouts" \
+  --by okf-refine/1.0 --stdin --consume
+```
+
+Sits between `capture` and `move`/`promote`: it reads one or more dumps-area concepts and
+writes a typed, titled concept into the drafts area, the same way `capture` writes a
+provisionally-typed one into the dumps area — same "the CLI moves bytes it is handed, no
+templating" contract for the body, same required-actor rule (§7).
+
+Two differences from `capture` follow directly from what refining is *for*. First, `--type`
+and `--title` are required, with no provisional fallback: capture's whole premise is that
+the caller may not know these yet, refine's is that it does. Second, the id is derived from
+the title (kebab-cased, matching `okf-ingest`'s convention) rather than generated from a
+date and session — a refined title is a real title, not a one-line summary a human will
+rename on the way into the corpus, so hardening it into the id is no longer the mistake it
+would be at capture time (see "The id is generated, not derived from the title" above).
+
+**Provenance is cited, not copied.** The written concept's `generated.by` names the refiner
+— the actor that ran `refine` — never the original dump's producer, because the refiner
+authored *this* document even when it is only restating someone else's finding. Each source
+consumed becomes a `sources[]` entry naming its id and title (§5.1), so the join back to the
+original capture — its own producer, session, and origin — survives through the file that is
+still there (or was, before `--consume`). Copying the source's `sources[]` forward instead
+was rejected: it denormalizes provenance into two places that can drift, when the citation
+alone is a sufficient join.
+
+**Sources are consumed only on request.** `--consume` removes the named sources after a
+successful write; by default they are left in place. This was the one place a CLI-side
+safeguard was considered and rejected: a raw dump can be split across several `refine`
+invocations before every part of it has a home, and the tool has no way to know when a split
+is "done" — that is a judgment about document content, not something inferable from
+frontmatter. So completeness stays an explicit, opt-in act by the caller (mirroring
+`okf-review`'s existing "never delete a draft without confirming" discipline for merges)
+rather than something `refine` guesses at.
 
 ## `move`
 

@@ -87,22 +87,20 @@ reader relies on.
 7. **Emptying the drafts inbox**
 
    A concept in the drafts area is a different backlog. It is not stale or drifted — it was
-   never placed, and its type is a guess. `okfctl status` reports it as an inbox rather than
-   as attention; `okfctl status --drafts` lists it.
+   refined (by `okf-refine`) from a raw dump into a typed, titled entry, but never placed in
+   the corpus. `okfctl status` reports it as an inbox rather than as attention;
+   `okfctl status --drafts` lists it.
 
-   Reviewing one has two outcomes that empty it, and you must not choose between them
-   silently. Show the user the draft and both options.
+   Because `okf-refine` already assigned a real type and title before the entry reached
+   `drafts/`, the common case here is narrow: **relocate** it into the corpus, or **merge**
+   it into a concept that already exists. Show the user the draft and both options; you must
+   not choose between them silently.
 
    **It is knowledge in its own right** → relocate it.
 
    ```bash
    okfctl move drafts/<id> <dir>/<id> --by human:<you> --reason "<why here>"
    ```
-
-   Set a real type first — a bundle full of the provisional type teaches nothing, and the
-   move is the moment that answer is due. The type change is a frontmatter edit, so it goes
-   through the CLI, not by hand: there is no verb for it, so `okfctl new` the corrected
-   document only if the body is being rewritten anyway; otherwise raise it with the user.
 
    `move` carries the inbound links, both indexes and the log with it. Relocation is **not**
    promotion: the concept is still a draft, and `okf-promote` is still the act that says
@@ -115,31 +113,30 @@ reader relies on.
    folded in.
 
    A merged draft is **removed, not deprecated**. Deprecation is for knowledge that was true
-   and stopped being so; a dump folded into another document was never knowledge in its own
-   right. Run `okfctl refs --broken` afterwards to catch anything that linked to it.
+   and stopped being so; an entry folded into another document was never knowledge in its
+   own right. Run `okfctl refs --broken` afterwards to catch anything that linked to it.
 
-   **It is several concepts wearing one title** → split it.
+   **It still bundles more than one finding, or overlaps another draft** → split or
+   consolidate, as `okf-refine` would. This is the exception, not the common path: splitting
+   raw dumps and consolidating overlapping ones is `okf-refine`'s job, done before an entry
+   ever reaches `drafts/`. Reach for it here only when refinement missed it.
 
-   A capture written at the end of a session tends to carry everything that session
-   established — three findings in three paragraphs, sharing nothing but the hour they were
-   found. Filed as one concept, each of them is buried by the other two. Write each finding
-   as its own concept with `okf-ingest`, cross-link them, and remove the draft only once
-   every paragraph has a home. Check that literally: a split that quietly drops the third
-   paragraph is the failure mode here, and nothing will report it.
+   - *Split*: write each finding as its own concept with `okf-ingest`, cross-link them, and
+     remove the draft only once every paragraph has a home. Check that literally: a split
+     that quietly drops the third paragraph is the failure mode here, and nothing will
+     report it.
+   - *Consolidate*: fold overlapping drafts into one concept per question answered, not one
+     concept per draft. Name which drafts went into which concept before deleting any of
+     them.
 
-   **Several drafts are one concept** → consolidate them.
-
-   One run of work can produce two captures that overlap across a third of their content.
-   Fold them into one concept per question answered, not one concept per draft. Name which
-   drafts went into which concept before deleting any of them.
-
-   **Carry the provenance across.** Re-authoring through `okfctl new` records *you* as the
-   producer; the original `generated.by` and any `sources[]` do not survive the rewrite.
-   The draft may have come from another agent, in another session, from measurements you
-   have not reproduced. Name the original producer and its source in the body, and say
-   plainly that the figures were restated rather than re-measured. A re-authored concept
-   that reads as your own first-hand finding is a false provenance claim in the sense
-   SPEC §7 cares about, even though every field validates.
+   **Carry the provenance across**, whichever outcome you choose. `okf-refine` already
+   recorded the original producer and `sources[]` on the draft; if relocating or merging
+   requires re-authoring through `okfctl new`, that step records *you* as the producer and
+   drops the original `generated.by`/`sources[]` unless you restate them. Name the original
+   producer and its source in the body, and say plainly that the figures were restated
+   rather than re-measured. A re-authored concept that reads as your own first-hand finding
+   is a false provenance claim in the sense SPEC §7 cares about, even though every field
+   validates.
 
    **Neither fits** — an unintelligible draft, or one whose accuracy you cannot establish —
    leave it where it is and say so. Filing material you cannot vouch for is worse than an
@@ -157,7 +154,8 @@ reader relies on.
 - Preview the whole batch before the first write.
 - Never delete a draft without showing what was folded in and confirming.
 - Never deprecate a merged draft. Remove it — it was never knowledge in its own right.
-- Never relocate a draft still carrying the provisional type. Settle the type first.
+- Never relocate a draft still carrying the provisional type. `okf-refine` should have
+  settled it already; if one slipped through, settle the type first rather than relocating it as-is.
 - Never delete a draft until every part of it has a home or an explicit decision to drop it.
 - Never let a re-authored draft claim your provenance for another producer's findings.
 - Relocation is not promotion. `move` leaves `status` and `verified` alone, and so do you.

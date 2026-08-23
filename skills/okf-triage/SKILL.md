@@ -12,7 +12,7 @@ metadata:
 Report on an OKF bundle's health and name the workflow each finding calls for.
 
 **This workflow does not write.** It reads the bundle and recommends. Every change belongs
-to one of the four writing workflows, and the user chooses whether to run them.
+to one of the writing workflows, and the user chooses whether to run them.
 
 **Steps**
 
@@ -60,14 +60,18 @@ to one of the four writing workflows, and the user chooses whether to run them.
    | `stale` | `today >= stale_after` (SPEC §5.5) | `okf-review` |
    | `draft` + settled in practice | Never promoted, though the knowledge is relied on | `okf-promote` |
    | `unverified` | No `verified` entry at all, so no trust tier | `okf-review --confirm`, or `okf-promote` if it should also become stable |
-   | drafts inbox growing | Captures arriving faster than anyone reviews them | `okf-review` — an inbox nobody empties launders "we wrote it down" into "we know it" |
+   | dumps inbox growing | Raw captures arriving faster than anyone refines them | `okf-refine` — an inbox nobody empties launders "we wrote it down" into "we know it" |
+   | drafts inbox growing | Refined entries arriving faster than anyone places them | `okf-review` — same failure mode, one stage later |
    | conformance **errors** | Unparseable frontmatter, or a missing `type` | Fix the file directly; nothing else can run cleanly until then |
    | broken refs | A footnote or link that no longer resolves | Fix the file directly |
    | `deprecated` but still linked | Live concepts pointing at retired knowledge | Rewrite the referring concepts |
 
-   Report the inbox as its own line: how many captures the drafts area holds and the age of
-   the oldest. `okfctl status` prints both. An inbox with captures older than the bundle's
-   other attention items is a finding in its own right — name it and point at `okf-review`.
+   Report both inboxes as their own lines: how many entries the dumps area and the drafts
+   area each hold, and the age of the oldest in each. `okfctl status` prints both,
+   independently — never merge them into one figure, since they are different backlogs. An
+   inbox with entries older than the bundle's other attention items is a finding in its own
+   right — name it and point at `okf-refine` for the dumps inbox, `okf-review` for the
+   drafts inbox.
 
    Name concepts by id. Give counts, not a wall of rows — if a group has more than about
    ten members, say how many and list the ones that matter.
@@ -79,7 +83,7 @@ to one of the four writing workflows, and the user chooses whether to run them.
 
 **Guardrails**
 - Read-only. This workflow never writes to a concept, a `log.md`, or an `index.md`.
-- Report the inbox even when it is the only thing to say. A backlog nobody can see is a
+- Report both inboxes even when one is the only thing to say. A backlog nobody can see is a
   backlog nobody works.
 - Never call a warning an error, or a conformant bundle broken.
 - Never assert a concept is accurate or inaccurate — this workflow reads frontmatter, not

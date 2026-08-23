@@ -27,19 +27,27 @@ function captured(run: () => number): { code: number; out: string } {
   }
 }
 
-test('the inbox line names the count and the age of the oldest capture', () => {
+test('the dumps inbox line names the count and the age of the oldest capture', () => {
   const root = sandbox();
   const { out } = captured(() => runStatus({ bundle: root }));
-  assert.match(out, /Inbox/);
-  assert.match(out, /drafts\/ 2 captured/);
+  assert.match(out, /Dumps/);
+  assert.match(out, /dumps\/ 2 captured/);
   assert.match(out, /oldest \d+d/);
 });
 
-test('drafts-area concepts stay out of the default attention list', () => {
+test('the drafts inbox line names the count and the age of the oldest refined entry', () => {
   const root = sandbox();
   const { out } = captured(() => runStatus({ bundle: root }));
-  assert.doesNotMatch(out, /drafts\/retry-budget/);
-  assert.doesNotMatch(out, /drafts\/gateway-timeout/);
+  assert.match(out, /Drafts/);
+  assert.match(out, /drafts\/ 1 refined/);
+});
+
+test('dumps- and drafts-area concepts stay out of the default attention list', () => {
+  const root = sandbox();
+  const { out } = captured(() => runStatus({ bundle: root }));
+  assert.doesNotMatch(out, /dumps\/retry-budget/);
+  assert.doesNotMatch(out, /dumps\/gateway-timeout/);
+  assert.doesNotMatch(out, /drafts\/timeout-mitigation/);
   // ...while whatever is actually rotting is still there.
   assert.match(out, /metrics\/revenue|metrics\/margin/);
 });
@@ -47,68 +55,86 @@ test('drafts-area concepts stay out of the default attention list', () => {
 test('--all restores the unsegregated attention list', () => {
   const root = sandbox();
   const { out } = captured(() => runStatus({ bundle: root, all: true }));
-  assert.match(out, /drafts\/retry-budget/);
-  assert.match(out, /drafts\/gateway-timeout/);
+  assert.match(out, /dumps\/retry-budget/);
+  assert.match(out, /dumps\/gateway-timeout/);
+  assert.match(out, /drafts\/timeout-mitigation/);
 });
 
-test('--drafts drills into the inbox', () => {
+test('--dumps drills into the dumps inbox', () => {
+  const root = sandbox();
+  const { out } = captured(() => runStatus({ bundle: root, dumps: true }));
+  assert.match(out, /dumps\/retry-budget/);
+  assert.match(out, /dumps\/gateway-timeout/);
+  assert.doesNotMatch(out, /metrics\/revenue/);
+  assert.doesNotMatch(out, /timeout-mitigation/);
+});
+
+test('--drafts drills into the drafts inbox', () => {
   const root = sandbox();
   const { out } = captured(() => runStatus({ bundle: root, drafts: true }));
-  assert.match(out, /drafts\/retry-budget/);
-  assert.match(out, /drafts\/gateway-timeout/);
+  assert.match(out, /timeout-mitigation/);
   assert.doesNotMatch(out, /metrics\/revenue/);
+  assert.doesNotMatch(out, /gateway-timeout|retry-budget/);
 });
 
-test('a draft outside the drafts area is still flagged', () => {
+test('a draft outside both inbox areas is still flagged', () => {
   const root = sandbox();
   // metrics/revenue is status: draft in the fixture.
   const { out } = captured(() => runStatus({ bundle: root }));
   assert.match(out, /metrics\/revenue/);
 });
 
-test('drafts still count in the trust and lifecycle census', () => {
+test('dumps and drafts still count in the trust and lifecycle census', () => {
   const root = sandbox();
-  const withDrafts = captured(() => runStatus({ bundle: root }));
+  const withBoth = captured(() => runStatus({ bundle: root }));
+  rmSync(join(root, 'dumps'), { recursive: true, force: true });
   rmSync(join(root, 'drafts'), { recursive: true, force: true });
   const without = captured(() => runStatus({ bundle: root }));
 
-  assert.match(withDrafts.out, /7 concepts/);
+  assert.match(withBoth.out, /8 concepts/);
   assert.match(without.out, /5 concepts/);
   // The census counts them; only the attention list does not.
-  const draftsCount = (text: string) => Number(/draft (\d+)/.exec(text)?.[1] ?? -1);
-  assert.equal(draftsCount(withDrafts.out), draftsCount(without.out) + 2);
+  const draftCount = (text: string) => Number(/draft (\d+)/.exec(text)?.[1] ?? -1);
+  assert.equal(draftCount(withBoth.out), draftCount(without.out) + 3);
 });
 
-test('an empty or absent drafts area prints no inbox line', () => {
+test('an empty or absent inbox prints no line for that inbox', () => {
   const root = sandbox();
-  rmSync(join(root, 'drafts'), { recursive: true, force: true });
+  rmSync(join(root, 'dumps'), { recursive: true, force: true });
   const { out } = captured(() => runStatus({ bundle: root }));
-  assert.doesNotMatch(out, /Inbox/);
+  assert.doesNotMatch(out, /Dumps/);
+  assert.match(out, /Drafts/);
 });
 
-test('--json carries the drafts area and a per-record flag', () => {
+test('--json carries both areas and per-record flags', () => {
   const root = sandbox();
   const { out } = captured(() => runStatus({ bundle: root, json: true }));
   const parsed = JSON.parse(out);
+  assert.equal(parsed.dumpsDir, 'dumps');
   assert.equal(parsed.draftsDir, 'drafts');
-  const draft = parsed.concepts.find((c: { id: string }) => c.id === 'drafts/retry-budget');
+  const dump = parsed.concepts.find((c: { id: string }) => c.id === 'dumps/retry-budget');
+  const draft = parsed.concepts.find((c: { id: string }) => c.id === 'drafts/timeout-mitigation');
   const metric = parsed.concepts.find((c: { id: string }) => c.id === 'metrics/revenue');
+  assert.equal(dump.inDumps, true);
+  assert.equal(dump.inDrafts, false);
   assert.equal(draft.inDrafts, true);
+  assert.equal(draft.inDumps, false);
+  assert.equal(metric.inDumps, false);
   assert.equal(metric.inDrafts, false);
 });
 
-test('an overridden drafts area is what gets segregated', () => {
+test('an overridden dumps area is what gets segregated', () => {
   const root = sandbox();
-  const { out } = captured(() => runStatus({ bundle: root, draftsDir: 'metrics' }));
+  const { out } = captured(() => runStatus({ bundle: root, dumpsDir: 'metrics' }));
   assert.match(out, /metrics\/ 3 captured/);
   assert.doesNotMatch(out, /metrics\/revenue/);
-  // drafts/ is now ordinary corpus, so it is back in the attention list.
-  assert.match(out, /drafts\/retry-budget/);
+  // dumps/ is now ordinary corpus, so it is back in the attention list.
+  assert.match(out, /dumps\/retry-budget/);
 });
 
-test('--drafts lists titles, because generated ids cannot be read', () => {
+test('--dumps lists titles, because generated ids cannot be read', () => {
   const root = sandbox();
-  const { out } = captured(() => runStatus({ bundle: root, drafts: true }));
+  const { out } = captured(() => runStatus({ bundle: root, dumps: true }));
   assert.match(out, /TITLE/);
   assert.match(out, /Gateway timeout defaults are per-route/);
   assert.match(out, /Retry budgets are shared across a service/);
@@ -117,8 +143,8 @@ test('--drafts lists titles, because generated ids cannot be read', () => {
 
 test('a concept with no title falls back to its filename stem', () => {
   const root = sandbox();
-  writeFileSync(join(root, 'drafts/2026-08-22-abcdefgh-1.md'), '---\ntype: Note\n---\n\nbody\n');
-  const { out } = captured(() => runStatus({ bundle: root, drafts: true }));
+  writeFileSync(join(root, 'dumps/2026-08-22-abcdefgh-1.md'), '---\ntype: Note\n---\n\nbody\n');
+  const { out } = captured(() => runStatus({ bundle: root, dumps: true }));
   assert.match(out, /2026-08-22-abcdefgh-1/, 'the stem stands in (SPEC 4.1)');
 });
 

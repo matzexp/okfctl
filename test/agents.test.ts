@@ -286,7 +286,7 @@ test('capture installs at user scope and the curation suite into the bundle', ()
   assert.ok(existsSync(join(home, '.claude', 'commands', 'okf', 'capture.md')));
 
   // Curation happens where the knowledge lives, so it is project scope.
-  for (const skill of ['okf-triage', 'okf-ingest', 'okf-promote', 'okf-review', 'okf-deprecate']) {
+  for (const skill of ['okf-triage', 'okf-refine', 'okf-ingest', 'okf-promote', 'okf-review', 'okf-deprecate']) {
     assert.ok(existsSync(join(bundle, '.claude', 'skills', skill, 'SKILL.md')), `${skill} in the bundle`);
     assert.equal(existsSync(join(home, '.claude', 'skills', skill)), false, `${skill} is not user scope`);
   }

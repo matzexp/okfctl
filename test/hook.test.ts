@@ -140,7 +140,7 @@ test('the hook writes no knowledge and no state inside the bundle', () => {
   const before = readdirSync(bundle).sort();
   turn('s6');
   assert.deepEqual(readdirSync(bundle).sort(), before, 'the bundle is untouched by the hook');
-  assert.equal(existsSync(join(bundle, 'drafts', 'index.md')), false);
+  assert.equal(existsSync(join(bundle, 'dumps', 'index.md')), false);
 
   // The session marker lives in user-level state instead.
   assert.ok(existsSync(join(stateDir(), 'sessions')));
@@ -186,7 +186,7 @@ test('end to end: a hook prompt in an unrelated repo captures into the registere
   }));
   assert.equal(code, 0);
 
-  const file = join(bundle, 'drafts', '2026-08-22-e2e-1.md');
+  const file = join(bundle, 'dumps', '2026-08-22-e2e-1.md');
   assert.ok(existsSync(file), 'the capture lands in the registered bundle');
   const raw = readFileSync(file, 'utf8');
   assert.match(raw, /^status: draft$/m);
