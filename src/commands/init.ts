@@ -3,6 +3,10 @@ import { homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { resolveDraftsDir } from '../core/drafts.ts';
 import { resolveDumpsDir } from '../core/dumps.ts';
+import {
+  CONTENT_POLICY_FILE, FIELD_POLICY_FILE, SOURCE_POLICY_FILE,
+  contentPolicyTemplate, fieldPolicyTemplate, sourcePolicyTemplate,
+} from '../core/policy.ts';
 import { isBundleRoot, readConfig, registeredBundle, writeConfig } from '../core/userconfig.ts';
 import { findAdapter, ADAPTERS } from '../core/agents/hosts.ts';
 import type { Plan } from '../core/agents/adapter.ts';
@@ -67,6 +71,9 @@ export function runInit(target: string, options: InitOptions): number {
     { path: join(root, 'log.md'), kind: 'file', contents: rootLog() },
     { path: join(root, dumpsDir), kind: 'directory' },
     { path: join(root, draftsDir), kind: 'directory' },
+    { path: join(root, CONTENT_POLICY_FILE), kind: 'file', contents: contentPolicyTemplate() },
+    { path: join(root, SOURCE_POLICY_FILE), kind: 'file', contents: sourcePolicyTemplate() },
+    { path: join(root, FIELD_POLICY_FILE), kind: 'file', contents: fieldPolicyTemplate() },
   ];
 
   const missing = planned.filter((entry) => !existsSync(entry.path));

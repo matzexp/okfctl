@@ -37,7 +37,15 @@ reader relies on.
 
    If the backlog is large, propose an order and a batch size, and confirm before starting.
 
-3. **For each concept, check it against something real**
+3. **Read this bundle's source policy, if it has one**
+
+   Check for `.okf/policy/source-policy.md`. If it exists, read it and apply it to what
+   counts as a sufficient check in the next step — it may name this bundle's canonical
+   sources for certain claims, or raise the bar beyond the generic approach below. It
+   cannot lower it: it can never license recording `--confirm` without actually checking
+   something real. Proceed on the generic approach below if no policy file exists.
+
+4. **For each concept, check it against something real**
 
    Read the document. Then check its claims against whatever the bundle says they rest on:
 
@@ -47,9 +55,9 @@ reader relies on.
      means to inspect it — a repo, a config file, a cluster.
 
    Concepts with no sources and nothing inspectable are the hard case. Say so rather than
-   guessing; see step 5.
+   guessing; see step 6.
 
-4. **Preview the batch, then write**
+5. **Preview the batch, then write**
 
    Before the first write, show the user the whole list: each concept, the finding, the
    command that will record it, and the horizon for each confirmation. Confirm, then run
@@ -60,7 +68,7 @@ reader relies on.
    a `human:` id — `human:` raises the concept to the highest trust tier and must mean a
    person read it. Ask if you do not know which to use.
 
-5. **Route on what you found**
+6. **Route on what you found**
 
    **Still accurate** — confirm, with a new horizon. Confirming without moving
    `stale_after` leaves the concept stale and it comes straight back in the next backlog.
@@ -79,12 +87,12 @@ reader relies on.
    unverifiable concept is a real finding, and inventing a confirmation to close it out is
    the one failure this workflow exists to prevent.
 
-6. **Report**
+7. **Report**
 
    Per concept: the finding, what you checked it against, and what was written. Then the
    backlog that remains, and the concepts nobody could verify.
 
-7. **Emptying the drafts inbox**
+8. **Emptying the drafts inbox**
 
    A concept in the drafts area is a different backlog. It is not stale or drifted — it was
    refined (by `okf-refine`) from a raw dump into a typed, titled entry, but never placed in
@@ -159,3 +167,5 @@ reader relies on.
 - Never delete a draft until every part of it has a home or an explicit decision to drop it.
 - Never let a re-authored draft claim your provenance for another producer's findings.
 - Relocation is not promotion. `move` leaves `status` and `verified` alone, and so do you.
+- Bundle policy (`.okf/policy/`) can raise the bar for what counts as a sufficient check;
+  it can never license `--confirm` without actually checking something real.

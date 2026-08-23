@@ -49,7 +49,11 @@ test('init scaffolds a conformant bundle in an empty directory', () => {
   assert.ok(existsSync(join(root, 'log.md')));
   assert.ok(existsSync(join(root, 'dumps')));
   assert.ok(existsSync(join(root, 'drafts')));
+  assert.ok(existsSync(join(root, '.okf/policy/content-policy.md')));
+  assert.ok(existsSync(join(root, '.okf/policy/source-policy.md')));
+  assert.ok(existsSync(join(root, '.okf/policy/field-policy.md')));
   assert.equal(countBy(checkBundle(loadBundle(root)), 'error'), 0);
+  assert.equal(loadBundle(root).concepts.length, 0, '.okf/ contributes no concepts');
   assert.equal(isBundleRoot(root), true);
 });
 

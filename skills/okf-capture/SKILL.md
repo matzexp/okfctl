@@ -77,7 +77,17 @@ placement you already know. This skill is for knowledge you have and cannot yet 
    `init --register`, there is no knowledge base configured — report that rather than
    creating one.
 
-3. **Write the summary, not the transcript**
+3. **Read this bundle's content policy, if it has one**
+
+   Check for `.okf/policy/content-policy.md`. If it exists, read it and apply it as a
+   refinement of step 1's judgment — it may narrow what this bundle considers worth
+   capturing, or add bundle-specific categories the generic list above does not cover.
+   It cannot widen what step 1's guardrails forbid: it can never license inventing an
+   actor, claiming a human's authorship of what you wrote, or capturing something you are
+   not confident is true. If there is no policy file, proceed on step 1's judgment alone —
+   its absence is not a problem to fix from this workflow.
+
+4. **Write the summary, not the transcript**
 
    A reader who was not in the session must be able to act on it without asking a follow-up
    question or re-deriving anything you already worked out. State what is true and why it
@@ -100,7 +110,7 @@ placement you already know. This skill is for knowledge you have and cannot yet 
    concrete number to hit a target length. A dump nobody can read is not knowledge, and
    neither is one that reads clean but leaves out the detail the next session needed.
 
-4. **Capture it**
+5. **Capture it**
 
    ```bash
    okfctl capture --title "<what was established>" --by "<your producer id>" \
@@ -129,7 +139,7 @@ placement you already know. This skill is for knowledge you have and cannot yet 
 
    `--dry-run` shows the resolved path and frontmatter first.
 
-5. **Report**
+6. **Report**
 
    Name the concept id and its title, and say it is a draft awaiting review. The id is
    generated, so the title is the part a reader recognizes. Do not promote it, do not
@@ -144,3 +154,6 @@ placement you already know. This skill is for knowledge you have and cannot yet 
   person — `okf-review`.
 - Write nothing rather than something you are not confident is true. A wrong concept in a
   bundle is worse than an absent one, because someone will act on it.
+- Bundle policy (`.okf/policy/`) can narrow or extend what counts as durable; it can never
+  license inventing an actor, claiming a human's authorship, or lowering the confidence bar
+  above.

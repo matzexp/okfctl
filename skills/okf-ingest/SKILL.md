@@ -22,6 +22,10 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
 
 2. **Decide placement and type — against the bundle, not from habit**
 
+   Check for `.okf/policy/field-policy.md` first. A bundle that has already agreed on
+   per-type conventions records them there — match what it says before falling back to
+   inferring from the corpus below.
+
    OKF's `type` vocabulary is open (SPEC §4.1) and each bundle settles into its own. Read
    what this one uses before choosing:
 
@@ -39,11 +43,13 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
    and follow it.
 
    A bundle with no corpus is the exception: `dumps/` and `drafts/` and nothing else means
-   there is no convention to match, and the first concept filed invents one. Do not invent it silently.
-   Propose a layout, ask, and then record the answer as a concept, so the next agent can
-   infer the rule the way this step assumes it can. Sorting by subject domain and sorting
-   by concept type are both coherent; a bundle that does half of each is not, and nothing
-   in the tooling will report the split.
+   there is no convention to match, and the first concept filed invents one. Do not invent
+   it silently. Propose a layout, ask, and then record the agreed answer in
+   `.okf/policy/field-policy.md` — not as a corpus concept. The answer describes how this
+   bundle organizes itself, not something true about the world the bundle describes, so it
+   belongs in policy, which the next `okf-ingest` run already checks first. Sorting by
+   subject domain and sorting by concept type are both coherent; a bundle that does half of
+   each is not, and nothing in the tooling will report the split.
 
    Derive the id from the title in the bundle's existing style — usually kebab-case, no
    date prefix unless the directory already uses one (incident logs often do).
@@ -84,7 +90,9 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
    the bundle's documents open on a section heading instead. The title is already in
    frontmatter, and two of them read as a mistake.
 
-   If the knowledge rests on sources, cite them — but know what you can and cannot write.
+   If the knowledge rests on sources, cite them — check `.okf/policy/source-policy.md`
+   first if it exists, for what this bundle considers a good enough citation, then write
+   accordingly. Know what you can and cannot write regardless of policy.
    `okfctl new` has no flag for `sources[]`, and frontmatter is not yours to edit, so a
    concept created here cannot carry a machine-checkable citation. Record the source in the
    prose instead, under its own heading: the repository and commit, the query, the document.
@@ -118,3 +126,5 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
   measurements you did not reproduce, name that in the body and say the figures were
   restated rather than re-measured.
 - Do not promote what you just created.
+- Bundle policy (`.okf/policy/`) can narrow or extend placement/type/citation judgment; it
+  can never license inventing an actor or a source.

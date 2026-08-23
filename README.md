@@ -236,6 +236,34 @@ The spec names neither directory. Both are ours, and both are a convention: a bu
 > keep the old path without renaming, though a directory named `drafts/` holding raw,
 > unrefined material is exactly the confusion this rename exists to remove.
 
+## Bundle policy
+
+`.okf/policy/` holds a bundle's own judgment on what's worth keeping — three
+user-editable files `okfctl init` seeds with real starting guidance, never blank
+templates, and never overwrites once they exist:
+
+| File | Read by | What it states |
+|---|---|---|
+| `content-policy.md` | `okf-capture`, `okf-refine` | What's worth capturing/refining here, and what isn't; optionally, staleness horizons per type. |
+| `source-policy.md` | `okf-ingest`, `okf-refine`, `okf-review` | What makes a citation good enough here, and how review should check one. |
+| `field-policy.md` | `okf-ingest`, `okf-refine` | This bundle's required/recommended frontmatter per type, beyond SPEC §11's baseline. |
+
+`.okf/` is a dotfile directory, so it's excluded from the bundle walk the same way
+`.claude/`/`.agents/` already are: no frontmatter, never a concept, never shows up in
+`status`/`index`/`catalog`, and `okfctl check` never touches it — there is no new
+conformance gate here, SPEC §11 forbids one.
+
+Policy can **narrow or extend** a skill's judgment — stricter about what counts as
+durable, pickier about citations, more specific about required fields. It can **never
+override** the guardrails that don't originate from policy: no policy file can license
+inventing an actor, claiming a human's authorship of agent-written content, or skipping a
+citation. Every skill that reads policy says this explicitly.
+
+```bash
+cat .okf/policy/content-policy.md    # read the seeded starting point
+$EDITOR .okf/policy/field-policy.md  # narrow it to your own bundle's conventions
+```
+
 ## Agent hooks
 
 `okfctl init --agent <host>` installs the capture workflow into a coding agent's

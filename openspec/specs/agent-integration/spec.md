@@ -12,14 +12,16 @@ writing outside the bundle only under a contract narrow enough to be safe and re
 ### Requirement: Bundle Initialization
 
 The system SHALL provide an init verb that scaffolds a minimal conformant bundle at a
-given path, creating a root `index.md`, a `log.md`, the dumps area, and the drafts area,
-and SHALL register that bundle as the machine's knowledge base on request.
+given path, creating a root `index.md`, a `log.md`, the dumps area, the drafts area, and
+the policy directory (SPEC `bundle-policy`), and SHALL register that bundle as the
+machine's knowledge base on request.
 
 #### Scenario: A new bundle
 
 - **WHEN** init runs against an empty directory
-- **THEN** a root `index.md` carrying `okf_version`, a `log.md`, the dumps area, and the
-  drafts area all exist, and the conformance check passes
+- **THEN** a root `index.md` carrying `okf_version`, a `log.md`, the dumps area, the
+  drafts area, and `.okf/policy/` with its three seeded files all exist, and the
+  conformance check passes
 
 #### Scenario: An existing bundle is not clobbered
 

@@ -280,6 +280,65 @@ frontmatter. So completeness stays an explicit, opt-in act by the caller (mirror
 `okf-review`'s existing "never delete a draft without confirming" discipline for merges)
 rather than something `refine` guesses at.
 
+## Bundle policy
+
+`.okf/policy/`: three user-editable files stating a bundle's own judgment on what's worth
+capturing, what makes a citation good enough, and what frontmatter it expects per type —
+read by `okf-capture`/`okf-refine`/`okf-ingest`/`okf-review`, never enforced by the CLI.
+
+**Location is `.okf/`, not a plain top-level `policy/`.** `bundle-model` requires every
+non-reserved `.md` outside the walk's skip rules to carry `type`/`title` on pain of a
+conformance error (SPEC §11) — a plain `policy/` would force these files to either grow
+frontmatter they do not need, showing up in `status` as permanently-unverified draft
+concepts they are not, or trip `check` on a bundle that scaffolded correctly. `.okf/`
+sidesteps this entirely: it is dotfile-prefixed, already excluded from the walk by the
+same rule that already protects `.claude/` and `.agents/`, so these files get the same
+frontmatter-free freedom `.claude/`'s installed `SKILL.md` files already have. Not
+`.claude/` or `.agents/` themselves, because this content belongs to the bundle and its
+lifecycle — a Codex session and a Claude Code session both need to read the same policy,
+and neither host's own dotfile directory is the right shared home for it.
+
+**Three files, not one.** Capture/refine's "what's worth saving" question, review's
+"what's a good citation" question, and ingest's "what fields does this type need"
+question are different enough in scope and audience that one file either grows unwieldy
+or a skill has to skip past sections meant for another. Each of the three is short enough
+to read in full on every invocation — the point, since a skill should not need to grep a
+policy file for its relevant section.
+
+**Seeded with real content, never overwritten** — the same idempotency
+`index.md`/`log.md`/`dumps/`/`drafts/` already have. `content-policy.md`'s starter content
+restates `okf-capture`'s existing "what counts as durable" categories as editable bundle
+policy rather than skill instructions, so a fresh bundle's policy already encodes today's
+generic judgment and editing it means narrowing or extending a real starting point, not
+writing one from a blank file. `source-policy.md` and `field-policy.md` are seeded the
+same way, from `okf-review`'s source-checking guidance and `okf-ingest`'s
+type/placement-matching guidance respectively.
+
+**Policy narrows or extends; it never overrides the hard guardrails.** Every skill that
+reads `.okf/policy/` says this explicitly rather than leaving it implied: policy can make
+the bar for capture stricter, raise what counts as a sufficient citation check, or add
+bundle-specific field requirements. It cannot touch actor honesty, the
+CLI-is-the-only-writer rule, or any provenance-carryover guarantee `okf-refine`/
+`okf-review` already enforce — those guardrails do not originate from policy, and a
+user-editable file is exactly the kind of thing a future edit could accidentally weaken if
+the boundary were only implied.
+
+**`okf-ingest`'s no-corpus fallback moved from a concept to `field-policy.md`.** A bundle
+with no corpus yet has no convention to match, and the first concept filed invents one —
+previously that answer was recorded as a corpus concept, which put a process decision
+("how does this bundle organize itself") in the same place as knowledge decisions ("what
+is true about the system this bundle describes"). `field-policy.md` is the more honest
+home: it exists precisely to answer the first kind of question, and the next `okf-ingest`
+run already checks it first.
+
+**Not a machine-enforced schema, and not a new CLI verb.** `field-policy.md` states what a
+bundle expects; nothing in `okfctl` validates a concept against it or fails `check` over
+it — SPEC §11 forbids a conformance rule beyond its three, and per-type field conventions
+are exactly the kind of bundle-specific judgment that stays advisory on purpose. Reading
+`.okf/policy/*.md` is a skill-level `Read` call, not a command: there is no actor to
+validate, no log entry, and no dry-run preview to write, because nothing here is a
+frontmatter change.
+
 ## Machine-readable output
 
 `status`, `check`, `refs`, and `search` share one rendering path, `renderOutput(data,

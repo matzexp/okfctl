@@ -31,7 +31,16 @@ per entry.
    As in `okf-triage`: find the directory holding the bundle's top-level `index.md`, ask
    when it is ambiguous, and pass `--bundle <root>` on every command.
 
-2. **Read the dumps inbox**
+2. **Read this bundle's content and field policy, if it has one**
+
+   Check for `.okf/policy/content-policy.md` and `.okf/policy/field-policy.md`. If either
+   exists, read it and apply it to the shape/type/title judgment in steps 4-5 below —
+   policy may narrow what this bundle wants refined, or state per-type field conventions
+   this bundle already agreed on. It cannot widen what the guardrails below forbid: it can
+   never license inventing an actor, skipping a citation, or claiming a dump's findings as
+   your own first-hand work. Proceed on the generic judgment below if no policy file exists.
+
+3. **Read the dumps inbox**
 
    ```bash
    okfctl --bundle <root> status --dumps --json
@@ -41,7 +50,7 @@ per entry.
    with its frontmatter — the title on a capture is a one-line summary, not necessarily the
    shape the refined entry should take.
 
-3. **Decide the shape: one-to-one, split, or consolidate**
+4. **Decide the shape: one-to-one, split, or consolidate**
 
    Read each dump and ask what it actually contains:
 
@@ -56,7 +65,7 @@ per entry.
    When in doubt, prefer more, smaller entries over one that bundles unrelated things — a
    `okf-review` split later has to redo this judgment with less context than you have now.
 
-4. **Decide type and title — against the bundle, not from habit**
+5. **Decide type and title — against the bundle, not from habit**
 
    Same discipline as `okf-ingest`: read what the bundle's existing types and directories
    are before choosing (`okfctl status --json`), and match them. Refine has no provisional
@@ -64,7 +73,7 @@ per entry.
    point of this step. A vague or restated capture title ("test finding", "gateway thing")
    is not a title; write one a reader would recognize in an index.
 
-5. **Preview, then write**
+6. **Preview, then write**
 
    ```bash
    okfctl --bundle <root> refine <source...> \
@@ -88,7 +97,7 @@ per entry.
    measurement you have not reproduced, say so plainly in the body: "restated from
    dumps/<id>," not phrased as your own first-hand finding.
 
-6. **Decide whether to consume the source**
+7. **Decide whether to consume the source**
 
    `--consume` removes the dump(s) named in that invocation once the write succeeds. Default
    to *not* passing it until you are sure every part of a dump's content now has a home —
@@ -101,7 +110,7 @@ per entry.
    `status` as a slightly stale-looking dumps inbox. Consuming a dump whose content is not
    fully distributed yet destroys part of it. When unsure, do not pass `--consume`.
 
-7. **Report**
+8. **Report**
 
    Gated mode: report as you go, one confirmed entry at a time, or a batch summary if that
    is how you asked for confirmation. Automatic mode: report the whole batch at the end —
@@ -124,3 +133,6 @@ per entry.
 - In gated mode, do not write before the user has approved — per item or, if they say so,
   per batch. In automatic mode, still decline a dump you cannot confidently refine rather
   than filing a guess.
+- Bundle policy (`.okf/policy/`) can narrow or extend shape/type/field judgment; it can
+  never license inventing an actor, skipping a citation, or claiming another producer's
+  findings as your own.
