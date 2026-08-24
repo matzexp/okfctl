@@ -1,7 +1,10 @@
 # What makes a well-refined entry
 
-The full criteria `okf-refine` steps 4-5 apply when deciding shape, type, and title for a
-dump moving into the drafts area.
+The full criteria `okf-refine` applies when deciding shape, type, and title for a dump
+moving into the drafts area, once it has been checked against existing knowledge and
+found unrelated to anything already there. A dump found to extend or contradict an
+existing entry does not go through this shape decision at all — see `okf-refine`'s own
+steps for that case.
 
 ## Shape: one-to-one, split, or consolidate
 

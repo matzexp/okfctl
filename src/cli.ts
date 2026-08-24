@@ -152,23 +152,25 @@ program
 program
   .command('refine <sources...>')
   .description('turn one or more dumps into a typed, titled entry in the drafts area')
-  .requiredOption('--type <type>', 'concept type; required, refine has no provisional default')
-  .requiredOption('--title <text>', 'title; required, refine has no provisional default')
+  .option('--type <type>', 'concept type; required for a fresh entry, defaults to the existing type with --extend')
+  .option('--title <text>', 'title; required for a fresh entry, defaults to the existing title with --extend')
   .requiredOption('--by <actor>', 'refining actor (SPEC 7); never guessed')
   .option('--description <text>', 'one-line summary')
   .option('--tags <list>', 'comma-separated tags', (value: string) =>
     value.split(',').map((tag) => tag.trim()).filter(Boolean))
-  .option('--body <text>', 'the body, written verbatim')
+  .option('--body <text>', 'the body, written verbatim (the full resulting file, when --extend is used)')
   .option('--stdin', 'read the body from standard input')
   .option('--to <dir>', 'target directory instead of the drafts area')
   .option('--id <slug>', 'a chosen id instead of one derived from the title')
-  .option('--consume', 'remove the named sources after a successful write')
+  .option('--extend <id>', 'update an existing drafts-area entry in place instead of creating a new one')
+  .option('--consume', 'remove the named sources after a successful write (refused if a source is outside the dumps area)')
   .option('--no-log', 'skip the log.md entry')
   .option('-n, --dry-run', 'show what would be written (and consumed) without writing it')
   .action(function (this: Command, sources: string[], options) {
     exit(runRefine(sources, {
       bundle: writeBundleDir(this),
       draftsDir: draftsDir(this),
+      dumpsDir: dumpsDir(this),
       ...options,
       noLog: options.log === false,
     }));

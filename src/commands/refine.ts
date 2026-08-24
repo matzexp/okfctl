@@ -2,7 +2,8 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { findConcept, loadBundle } from '../core/bundle.ts';
 import { conceptTitle, createConcept, serializeConcept, type Concept } from '../core/concept.ts';
-import { resolveDraftsDir } from '../core/drafts.ts';
+import { resolveDraftsDir, inDrafts } from '../core/drafts.ts';
+import { resolveDumpsDir, inDumps } from '../core/dumps.ts';
 import { slugify } from './capture.ts';
 import { ACTOR_FORMS, isValidActor, isoDay } from '../core/lifecycle.ts';
 import { appendLogEntry, displayPath, nearestLog } from '../core/log.ts';
@@ -12,8 +13,10 @@ import { bold, cyan, dim, green, red } from '../core/term.ts';
 export interface RefineOptions {
   bundle: string;
   draftsDir?: string;
+  dumpsDir?: string;
   to?: string;
   id?: string;
+  extend?: string;
   type?: string;
   title?: string;
   description?: string;
@@ -26,12 +29,22 @@ export interface RefineOptions {
   noLog?: boolean;
 }
 
+interface Citation {
+  id: string;
+  title: string;
+  resource: string | null;
+}
+
 /**
  * Turn one or more dumps-area (or any) concepts into a typed, titled entry in the
- * drafts area, citing what it drew from rather than claiming first-hand authorship.
+ * drafts area, citing what it drew from rather than claiming first-hand authorship —
+ * or, with `--extend`, update an existing drafts-area entry in place instead of
+ * creating a new one.
  *
- * Unlike `capture`, `--type` and `--title` are required and there is no
- * provisional default: refining is exactly the act of no longer guessing them.
+ * Unlike `capture`, `--type` and `--title` are required for a fresh entry and there
+ * is no provisional default: refining is exactly the act of no longer guessing them.
+ * Extending an existing entry defaults both to its current values instead, since the
+ * point there is updating content, not re-deciding type and title.
  */
 export function runRefine(sources: string[], options: RefineOptions): number {
   const bundle = loadBundle(options.bundle);
@@ -41,13 +54,44 @@ export function runRefine(sources: string[], options: RefineOptions): number {
     return 1;
   }
 
-  const type = options.type?.trim();
+  let draftsDir: string;
+  let dumpsDir: string;
+  try {
+    draftsDir = resolveDraftsDir(bundle.root, options.draftsDir);
+    dumpsDir = resolveDumpsDir(bundle.root, options.dumpsDir);
+  } catch (error) {
+    console.error(red((error as Error).message));
+    return 1;
+  }
+
+  const extendRef = options.extend?.trim();
+  let target: Concept | null = null;
+  if (extendRef) {
+    if (options.to || options.id) {
+      console.error(red('--extend cannot be combined with --to or --id; the target is the extended entry\'s own existing path'));
+      return 1;
+    }
+    try {
+      target = findConcept(bundle, extendRef);
+    } catch (error) {
+      console.error(red((error as Error).message));
+      return 1;
+    }
+    if (!inDrafts(target.id, draftsDir)) {
+      const area = inDumps(target.id, dumpsDir) ? 'the dumps area' : 'the corpus';
+      console.error(red(`"${target.id}" is in ${area}, not drafts — a concept outside drafts is never edited in place`));
+      console.error(dim('cite it as an ordinary source instead: refine writes a new drafts-area entry, and that concept is left untouched'));
+      return 1;
+    }
+  }
+
+  const type = options.type?.trim() || (target ? String(target.data.type ?? '').trim() : '');
   if (!type) {
     console.error(red('a --type is required (refine has no provisional type)'));
     return 1;
   }
 
-  const title = options.title?.trim();
+  const title = options.title?.trim() || (target ? String(target.data.title ?? '').trim() : '');
   if (!title) {
     console.error(red('a --title is required'));
     return 1;
@@ -75,41 +119,50 @@ export function runRefine(sources: string[], options: RefineOptions): number {
     }
   }
 
-  let draftsDir: string;
-  try {
-    draftsDir = resolveDraftsDir(bundle.root, options.draftsDir);
-  } catch (error) {
-    console.error(red((error as Error).message));
-    return 1;
+  const consume = options.consume === true;
+  if (consume) {
+    const outside = resolved.find((source) => !inDumps(source.id, dumpsDir));
+    if (outside) {
+      console.error(red(`--consume refuses: "${outside.id}" is not in the dumps area`));
+      console.error(dim('citing an already-refined or already-promoted concept as a source must never risk deleting it'));
+      return 1;
+    }
   }
 
-  const dir = options.to?.trim().replace(/^\.?\//, '').replace(/\/+$/, '') || draftsDir;
+  let id: string;
+  let file: string;
+  if (target) {
+    id = target.id;
+    file = target.file;
+  } else {
+    const dir = options.to?.trim().replace(/^\.?\//, '').replace(/\/+$/, '') || draftsDir;
 
-  // Unlike capture's generated id, a refined entry's title is a real title, so
-  // the id follows the bundle's ordinary kebab-case convention (as `okf-ingest`
-  // already recommends) rather than the date-session scheme capture uses for a
-  // title that is only a one-line summary.
-  const slug = options.id?.trim() ? slugify(options.id.trim().replace(/^\.?\//, '').replace(/\.md$/i, '')) : slugify(title);
-  if (!slug) {
-    console.error(red('could not derive a usable id from the title; pass --id'));
-    return 1;
-  }
-  const id = dir ? `${dir}/${slug}` : slug;
-  const file = join(bundle.root, `${id}.md`);
-  const rel = relative(bundle.root, file);
-  if (rel.startsWith('..') || rel.startsWith(sep)) {
-    console.error(red(`"${id}" is outside the bundle at ${bundle.root}`));
-    return 1;
-  }
-  const name = `${id.split('/').pop()}.md`;
-  if (name === 'index.md' || name === 'log.md') {
-    console.error(red(`${name} is reserved (SPEC §3.1) and is not a concept`));
-    return 1;
-  }
-  if (existsSync(file)) {
-    console.error(red(`${id}.md already exists`));
-    console.error(dim('okfctl never overwrites a concept; pass a different --id'));
-    return 1;
+    // Unlike capture's generated id, a refined entry's title is a real title, so
+    // the id follows the bundle's ordinary kebab-case convention (as `okf-ingest`
+    // already recommends) rather than the date-session scheme capture uses for a
+    // title that is only a one-line summary.
+    const slug = options.id?.trim() ? slugify(options.id.trim().replace(/^\.?\//, '').replace(/\.md$/i, '')) : slugify(title);
+    if (!slug) {
+      console.error(red('could not derive a usable id from the title; pass --id'));
+      return 1;
+    }
+    id = dir ? `${dir}/${slug}` : slug;
+    file = join(bundle.root, `${id}.md`);
+    const rel = relative(bundle.root, file);
+    if (rel.startsWith('..') || rel.startsWith(sep)) {
+      console.error(red(`"${id}" is outside the bundle at ${bundle.root}`));
+      return 1;
+    }
+    const name = `${id.split('/').pop()}.md`;
+    if (name === 'index.md' || name === 'log.md') {
+      console.error(red(`${name} is reserved (SPEC §3.1) and is not a concept`));
+      return 1;
+    }
+    if (existsSync(file)) {
+      console.error(red(`${id}.md already exists`));
+      console.error(dim('okfctl never overwrites a concept; pass a different --id, or --extend it explicitly'));
+      return 1;
+    }
   }
 
   let body: string;
@@ -122,11 +175,31 @@ export function runRefine(sources: string[], options: RefineOptions): number {
 
   // One citation per source, keyed by that source's own trailing id segment so
   // it reads as a natural footnote label in the body (SPEC §5.1).
-  const citations = resolved.map((source) => ({
+  const newCitations: Citation[] = resolved.map((source) => ({
     id: source.id.split('/').pop()!,
     title: conceptTitle(source),
     resource: source.id,
   }));
+
+  // Extending merges into whatever the entry already cited — a prior citation is
+  // never dropped, and a source already cited (by resource, the only globally
+  // unique field) is not cited twice.
+  let citations: Citation[];
+  if (target) {
+    const existing = Array.isArray(target.data.sources)
+      ? (target.data.sources as Citation[])
+      : [];
+    const existingResources = new Set(existing.map((citation) => citation.resource));
+    citations = [...existing, ...newCitations.filter((c) => !existingResources.has(c.resource))];
+  } else {
+    citations = newCitations;
+  }
+
+  const description = options.description?.trim()
+    || (target ? (target.data.description as string | undefined) : undefined);
+  const tags = options.tags?.length
+    ? options.tags
+    : (target ? (target.data.tags as string[] | undefined) : undefined);
 
   const at = new Date().toISOString();
   const concept = createConcept(
@@ -135,8 +208,8 @@ export function runRefine(sources: string[], options: RefineOptions): number {
     [
       ['type', type],
       ['title', title],
-      ['description', options.description?.trim() || undefined],
-      ['tags', options.tags?.length ? options.tags : undefined],
+      ['description', description],
+      ['tags', tags],
       ['status', 'draft'],
       ['generated', { by, at }],
       ['sources', citations],
@@ -144,21 +217,26 @@ export function runRefine(sources: string[], options: RefineOptions): number {
     body,
   );
 
-  const consume = options.consume === true;
   const sourceIds = resolved.map((source) => source.id);
-  const entry = `**Refined**: [${title}](/${id}.md) added as ${type} (draft) by ${by}, from ${sourceIds.map((s) => `\`${s}\``).join(', ')}${consume ? ' (sources consumed)' : ''}.`;
+  const entry = target
+    ? `**Extended**: [${title}](/${id}.md) updated with ${sourceIds.map((s) => `\`${s}\``).join(', ')} by ${by}${consume ? ' (sources consumed)' : ''}.`
+    : `**Refined**: [${title}](/${id}.md) added as ${type} (draft) by ${by}, from ${sourceIds.map((s) => `\`${s}\``).join(', ')}${consume ? ' (sources consumed)' : ''}.`;
   const logFile = nearestLog(bundle.root, file);
 
-  console.log(bold(`${cyan(`${id}.md`)}  ${green('refined')}`));
+  console.log(bold(`${cyan(`${id}.md`)}  ${green(target ? 'extended' : 'refined')}`));
   console.log(`  ${dim(`type: ${type}   status: draft`)}`);
   console.log(`  ${dim(`generated = { by: ${by}, at: ${at} }`)}`);
-  console.log(`  ${dim(`sources: ${sourceIds.join(', ')}`)}`);
+  console.log(`  ${dim(`sources: ${citations.map((c) => c.resource).join(', ')}`)}`);
   if (consume) {
     for (const source of resolved) console.log(`  ${dim(`consume ${source.id}.md`)}`);
   }
   if (!options.noLog) console.log(`  ${dim(`log: ${displayPath(bundle.root, logFile)}`)}`);
 
   if (options.dryRun) {
+    if (target) {
+      console.log(`\n${dim('--- resulting file ---')}`);
+      console.log(serializeConcept(concept));
+    }
     console.log(cyan('\ndry run; nothing written'));
     return 0;
   }
@@ -190,7 +268,7 @@ export function runRefine(sources: string[], options: RefineOptions): number {
     return 1;
   }
 
-  console.log(green('\nrefined'));
+  console.log(green(target ? '\nextended' : '\nrefined'));
   return 0;
 }
 

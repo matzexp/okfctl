@@ -190,3 +190,132 @@ test('provenance is carried forward, not claimed: the refiner is generated.by, n
   assert.match(raw, new RegExp(`generated: \\{ by: ${BY.replace('/', '\\/')}`));
   assert.doesNotMatch(raw, /generated: \{ by: claude-code/);
 });
+
+test('--extend updates an existing draft in place, merging sources', () => {
+  const root = sandbox();
+  const code = quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'Updated body with the retry-budget follow-up.' },
+  ));
+  assert.equal(code, 0);
+
+  const file = join(root, 'drafts/timeout-mitigation.md');
+  const raw = readFileSync(file, 'utf8');
+  assert.match(raw, /^type: Runbook$/m, 'type defaulted to the existing entry');
+  assert.match(raw, /^title: Mitigate gateway timeout defaults$/m, 'title defaulted to the existing entry');
+  assert.match(raw, /Updated body with the retry-budget follow-up\./, 'body fully replaced');
+  assert.doesNotMatch(raw, /Set the per-route timeout explicitly/, 'the old body text is gone — extend is a full replacement');
+  assert.match(raw, /resource: dumps\/gateway-timeout/, 'the prior citation survives');
+  assert.match(raw, /resource: dumps\/retry-budget/, 'the new citation is added');
+});
+
+test('--extend re-run with an already-cited source adds no duplicate citation', () => {
+  const root = sandbox();
+  quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'First extend.' },
+  ));
+  quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'Second extend, same source again.' },
+  ));
+  const raw = readFileSync(join(root, 'drafts/timeout-mitigation.md'), 'utf8');
+  assert.equal((raw.match(/resource: dumps\/retry-budget/g) ?? []).length, 1, 'no duplicate citation');
+});
+
+test('--extend accepts an explicit --type/--title override', () => {
+  const root = sandbox();
+  quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'Retyped.', type: 'Decision', title: 'Retyped title' },
+  ));
+  const raw = readFileSync(join(root, 'drafts/timeout-mitigation.md'), 'utf8');
+  assert.match(raw, /^type: Decision$/m);
+  assert.match(raw, /^title: Retyped title$/m);
+});
+
+test('--extend refuses a corpus target, naming its actual area', () => {
+  const root = sandbox();
+  const code = quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'metrics/margin', by: BY, body: 'x' },
+  ));
+  assert.equal(code, 1);
+  const raw = readFileSync(join(root, 'metrics/margin.md'), 'utf8');
+  assert.match(raw, /Gross profit divided by revenue/, 'the corpus concept is untouched');
+});
+
+test('--extend refuses a target that does not exist', () => {
+  const root = sandbox();
+  const code = quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/does-not-exist', by: BY, body: 'x' },
+  ));
+  assert.equal(code, 1);
+});
+
+test('--extend combined with --to or --id is refused', () => {
+  const root = sandbox();
+  const code = quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', to: 'drafts', by: BY, body: 'x' },
+  ));
+  assert.equal(code, 1);
+});
+
+test('--extend dry run shows the full resulting body and writes nothing', () => {
+  const root = sandbox();
+  const before = readFileSync(join(root, 'drafts/timeout-mitigation.md'), 'utf8');
+  const code = quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'Preview-only body.', dryRun: true },
+  ));
+  assert.equal(code, 0);
+  assert.equal(readFileSync(join(root, 'drafts/timeout-mitigation.md'), 'utf8'), before, 'nothing written');
+});
+
+test('--extend is logged as extended, distinct from a fresh refine', () => {
+  const root = sandbox();
+  quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'x', consume: true },
+  ));
+  const log = readFileSync(join(root, 'log.md'), 'utf8');
+  assert.match(log, /\*\*Extended\*\*.*Mitigate gateway timeout defaults/);
+  assert.match(log, /dumps\/retry-budget/);
+  assert.match(log, /sources consumed/);
+});
+
+test('--consume refuses when a named source is outside the dumps area, on a fresh refine', () => {
+  const root = sandbox();
+  const code = quiet(() => runRefine(
+    ['drafts/timeout-mitigation'],
+    { ...base, bundle: root, title: 'Should not be written', consume: true },
+  ));
+  assert.equal(code, 1);
+  assert.equal(existsSync(join(root, 'drafts/should-not-be-written.md')), false);
+  assert.ok(existsSync(join(root, 'drafts/timeout-mitigation.md')), 'the drafts-area source survives');
+});
+
+test('--consume refuses when a named source is outside the dumps area, on --extend', () => {
+  const root = sandbox();
+  const code = quiet(() => runRefine(
+    ['metrics/margin'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'x', consume: true },
+  ));
+  assert.equal(code, 1);
+  assert.ok(existsSync(join(root, 'metrics/margin.md')), 'the corpus source survives');
+});
+
+test('citing a corpus concept as a source (without --consume) is allowed and leaves it untouched', () => {
+  const root = sandbox();
+  const code = quiet(() => runRefine(
+    ['metrics/margin', 'dumps/retry-budget'],
+    { ...base, bundle: root, title: 'Margin follow-up' },
+  ));
+  assert.equal(code, 0);
+  const raw = readFileSync(join(root, 'drafts/margin-follow-up.md'), 'utf8');
+  assert.match(raw, /resource: metrics\/margin/);
+  assert.match(raw, /resource: dumps\/retry-budget/);
+  assert.ok(existsSync(join(root, 'metrics/margin.md')), 'corpus concept untouched');
+});

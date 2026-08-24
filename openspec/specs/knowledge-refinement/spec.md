@@ -66,7 +66,7 @@ the drafts area that satisfies SPEC §11 on its first write.
 
 #### Scenario: Body is copied, never transformed
 
-- **WHEN** a body is supplied
+- **WHEN** a body is supplied to a fresh (non-`--extend`) refine
 - **THEN** it is written verbatim below the frontmatter, with no templating, reformatting,
   or inferred structure
 
@@ -84,8 +84,54 @@ the drafts area that satisfies SPEC §11 on its first write.
 
 #### Scenario: No overwrite
 
-- **WHEN** the target path already names an existing concept
+- **WHEN** the target path already names an existing concept and `--extend` naming that
+  same concept was not passed
 - **THEN** the command refuses, naming the existing concept, and nothing is written
+
+### Requirement: Extending An Existing Draft In Place
+
+The system SHALL provide an extend mode that updates an existing drafts-area concept's
+file with a full-replacement body and a merged `sources[]`, rather than refusing because
+the target already exists, and SHALL restrict this mode to drafts-area targets only.
+
+#### Scenario: Extending a draft in place
+
+- **WHEN** the caller passes `--extend <existing-drafts-id>` with one or more new sources,
+  a body, and an actor
+- **THEN** that drafts-area concept's file is overwritten with the given body, and the
+  command reports it as extended rather than newly refined
+
+#### Scenario: Type and title default to the existing entry's values
+
+- **WHEN** `--extend` is passed without `--type` or `--title`
+- **THEN** the existing entry's current `type` and `title` are kept unless the caller
+  explicitly overrides either
+
+#### Scenario: Prior sources are never dropped
+
+- **WHEN** an extend adds new source citations
+- **THEN** the resulting `sources[]` contains every citation the entry already had, plus
+  one for each newly-named source — none of the prior citations are removed
+
+#### Scenario: A corpus concept is refused as an extend target
+
+- **WHEN** `--extend` names a concept outside the drafts area
+- **THEN** the command refuses, stating that a corpus (or any non-drafts) concept is never
+  edited in place, and writes nothing — the caller instead cites it as an ordinary
+  `<source...>` on a ordinary (non-`--extend`) refine, which produces a new drafts-area
+  entry without touching the corpus file
+
+#### Scenario: A missing extend target is refused
+
+- **WHEN** `--extend` names a concept that does not exist
+- **THEN** the command refuses, naming the missing target, and writes nothing
+
+#### Scenario: Extending is logged distinctly from refining
+
+- **WHEN** an extend completes
+- **THEN** the log entry records it as an extension of the existing concept, naming the
+  concept, the newly-added source(s), the actor, and the consume outcome — distinct from
+  a fresh refine's "added" wording
 
 ### Requirement: Sources Must Resolve
 
@@ -133,8 +179,9 @@ finding.
 ### Requirement: Sources Are Consumed Only On Request
 
 The system SHALL leave every source concept in place after a refine unless the caller
-passes an explicit consume flag, and SHALL remove exactly the sources named in that
-invocation when it is passed and the write succeeds.
+passes an explicit consume flag, SHALL remove exactly the sources named in that
+invocation when it is passed and the write succeeds, and SHALL refuse the consume flag
+outright if any named source is not in the dumps area.
 
 #### Scenario: Default leaves sources in place
 
@@ -158,6 +205,13 @@ invocation when it is passed and the write succeeds.
 - **WHEN** a source concept is consumed
 - **THEN** the dumps (or other) directory's `index.md` no longer lists it, matching how
   other removal-causing verbs already refresh generated indexes
+
+#### Scenario: Consume refuses a source outside the dumps area
+
+- **WHEN** the consume flag is passed and any named source is a drafts-area or corpus
+  concept rather than a dumps-area one
+- **THEN** the command refuses, naming the offending source, and writes nothing — citing
+  an already-refined or already-promoted concept as a source must never risk deleting it
 
 ### Requirement: A Source Split Across Multiple Refined Concepts
 
@@ -204,13 +258,22 @@ provenance claim about a real producer (SPEC §7).
 
 The system SHALL support previewing a refine, reporting the resolved path, the frontmatter
 that would be written, and — when the consume flag is passed — which source files would be
-removed, without touching the bundle.
+removed, without touching the bundle. When previewing an extend, the full resulting body
+SHALL be shown, not only the frontmatter, because an extend overwrites content that
+already exists.
 
 #### Scenario: Dry run writes nothing
 
 - **WHEN** the caller previews a refine
 - **THEN** the resolved path, frontmatter, and any sources that would be consumed are
   printed, and no file is created, removed, or modified
+
+#### Scenario: Dry run on an extend shows the complete resulting file
+
+- **WHEN** the caller previews an `--extend`
+- **THEN** the full body that would replace the existing draft's content is printed in
+  addition to the frontmatter, so the caller can see exactly what is being overwritten
+  before it happens
 
 ### Requirement: Failure Leaves The Bundle Unchanged
 

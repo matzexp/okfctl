@@ -141,7 +141,7 @@ Every command also takes `--dumps-dir <dir>` and `--drafts-dir <dir>` if `dumps/
 | `okfctl init [dir]` | Scaffold a bundle, `--register` it as this machine's knowledge base, `--agent` to wire a coding agent to it. |
 | `okfctl update [dir]` | Refresh exactly the hosts already installed for a bundle — current skills, commands, and hook config — without naming `--agent` again. Preserves each host's installed `--capture-every` interval unless overridden. |
 | `okfctl capture` | Low-ceremony capture into the dumps area: title, actor and a body, placement deferred. |
-| `okfctl refine <source...>` | Turn one or more dumps into a typed, titled entry in the drafts area, citing what it drew from. |
+| `okfctl refine <source...>` | Turn one or more dumps into a typed, titled entry in the drafts area, citing what it drew from. `--extend <id>` updates an existing drafts-area entry in place instead. |
 | `okfctl move <from> <to>` | Relocate a concept, carrying its inbound links, indexes and log with it. Not a promotion. |
 | `okfctl check` | Two-tier conformance + lint. Errors gate CI; warnings inform. |
 | `okfctl status` | Corpus health: trust tiers, stale, draft, drifted, orphans. |
@@ -183,6 +183,8 @@ okfctl status --drafts                # drill into the drafts inbox
 okfctl status --all                   # put dumps and drafts back in the attention list
 okfctl refine dumps/x --type Runbook --title "..." --by agent/1.0 --stdin
 okfctl refine dumps/x --type Runbook --title "..." --by agent/1.0 --stdin --consume
+okfctl refine dumps/y --extend drafts/existing-entry --by agent/1.0 --stdin  # update it in place
+okfctl refine corpus/z dumps/y --type Runbook --title "..." --by agent/1.0 --stdin  # a corpus source becomes a new draft, never edited in place
 okfctl move drafts/x decisions/x --by human:me      # empty the drafts inbox
 okfctl move drafts/x decisions/ -n    # preview the link rewrites first
 ```
@@ -432,7 +434,7 @@ by name as `/okf:<name>`, or selected from its description.
 | `okf-capture` | A session produced something worth keeping. Summarizes it into the dumps area — or declines, which is the right answer more often than not. |
 | `okf-recall` | Before non-trivial investigation, or "have we seen this before?" Searches the bundle and weighs the answer by trust tier — a stable, human-reviewed hit is citable; anything else is a lead. Never writes. |
 | `okf-triage` | "How is this bundle doing?" Reports health, names the workflow each finding needs, and writes nothing. |
-| `okf-refine` | The dumps inbox. Turns raw dumps into typed, titled entries in the drafts area — one dump split into several, or several consolidated into one — citing what each drew from. |
+| `okf-refine` | The dumps inbox. Turns raw dumps into typed, titled entries in the drafts area — one dump split into several, or several consolidated into one — citing what each drew from. Checks new dumps against existing knowledge first: extends a matching draft in place, or flags a contradiction for a human to resolve, rather than always writing a disconnected new entry. |
 | `okf-ingest` | New knowledge arriving. Matches the bundle's own types and placement, creates through `new`, then writes the body. |
 | `okf-promote` | A draft that has earned trust. Reads it first, establishes a real actor, sets a horizon. |
 | `okf-review` | The stale and drifted backlog, and the drafts inbox. Checks each concept against its `sources[]`, routes to the outcome it actually found, and empties drafts by relocating or merging them. |
