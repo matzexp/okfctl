@@ -38,6 +38,19 @@ function install(home: string, bundle: string, agent: string[], extra = {}): num
   return quiet(() => runInit(bundle, { agent, home, command: '/usr/bin/okfctl', ...extra }));
 }
 
+function captured(run: () => number): { code: number; out: string } {
+  const log = console.log;
+  let out = '';
+  console.log = (...args: unknown[]) => {
+    out += `${args.join(' ')}\n`;
+  };
+  try {
+    return { code: run(), out };
+  } finally {
+    console.log = log;
+  }
+}
+
 const settings = (home: string) => join(home, '.claude', 'settings.json');
 const codexHooks = (home: string) => join(home, '.codex', 'hooks.json');
 
@@ -330,6 +343,19 @@ test('a dry run writes nothing for install or removal', () => {
   const before = readFileSync(settings(home), 'utf8');
   install(home, bundle, ['claude-code'], { remove: true, dryRun: true });
   assert.equal(readFileSync(settings(home), 'utf8'), before);
+});
+
+test('a dry run on a fresh install previews the host plan, not just the bundle scaffold', () => {
+  const { home, bundle } = isolate();
+  const { code, out } = captured(() => runInit(bundle, {
+    agent: ['claude-code'], home, command: '/usr/bin/okfctl', dryRun: true,
+  }));
+  assert.equal(code, 0);
+  assert.match(out, /claude-code\s+install/, 'the host plan is named, not silently skipped');
+  assert.match(out, /okf-capture/);
+  assert.match(out, /settings\.json/);
+  assert.equal(existsSync(settings(home)), false, 'still nothing written');
+  assert.equal(existsSync(join(home, '.claude', 'skills', 'okf-capture', 'SKILL.md')), false);
 });
 
 test('every adapter is named and reachable', () => {

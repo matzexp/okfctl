@@ -98,31 +98,37 @@ export function runInit(target: string, options: InitOptions): number {
     }
   }
 
-  if (options.dryRun) {
+  if (!options.dryRun) {
+    for (const entry of missing) {
+      if (entry.kind === 'directory') mkdirSync(entry.path, { recursive: true });
+      else {
+        mkdirSync(join(entry.path, '..'), { recursive: true });
+        writeFileSync(entry.path, entry.contents ?? '');
+      }
+    }
+
+    if (options.register) {
+      if (!isBundleRoot(root)) {
+        console.error(red(`${root} is not a bundle; nothing registered`));
+        return 1;
+      }
+      writeConfig({ ...readConfig(), registeredBundle: root });
+    }
+  }
+
+  // A host plan is previewed the same as it is installed: `runHosts` decides
+  // for itself, from `options.dryRun`, whether to print-only or also write.
+  // Without a host, the dry-run message belongs here instead — `runHosts`
+  // never runs to print its own.
+  if (hosts.length > 0) {
+    const code = runHosts(hosts, options, every, false, root);
+    if (code !== 0) return code;
+  } else if (options.dryRun) {
     console.log(cyan('\ndry run; nothing written'));
     return 0;
   }
 
-  for (const entry of missing) {
-    if (entry.kind === 'directory') mkdirSync(entry.path, { recursive: true });
-    else {
-      mkdirSync(join(entry.path, '..'), { recursive: true });
-      writeFileSync(entry.path, entry.contents ?? '');
-    }
-  }
-
-  if (options.register) {
-    if (!isBundleRoot(root)) {
-      console.error(red(`${root} is not a bundle; nothing registered`));
-      return 1;
-    }
-    writeConfig({ ...readConfig(), registeredBundle: root });
-  }
-
-  if (hosts.length > 0) {
-    const code = runHosts(hosts, options, every, false, root);
-    if (code !== 0) return code;
-  }
+  if (options.dryRun) return 0;
 
   console.log(green('\nready'));
   if (!options.register && registeredBundle() !== root) {
