@@ -4,8 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInit } from '../src/commands/init.ts';
+import { removeSection } from '../src/core/agents/adapter.ts';
 import { ADAPTERS, findAdapter, installedInterval } from '../src/core/agents/hosts.ts';
-import { CAPTURE_SKILL, LIFECYCLE_SKILLS, readCommand, readSkill } from '../src/core/agents/sources.ts';
+import {
+  CAPTURE_SKILL, LIFECYCLE_SKILLS, readCommand, readSkill, readSkillResources,
+} from '../src/core/agents/sources.ts';
 import { loadBundle } from '../src/core/bundle.ts';
 import { checkBundle, countBy } from '../src/core/check.ts';
 
@@ -50,6 +53,8 @@ test('claude-code installs a Stop hook, an arming hook, a skill and a command', 
 
   assert.ok(existsSync(join(home, '.claude', 'skills', 'okf-capture', 'SKILL.md')));
   assert.ok(existsSync(join(home, '.claude', 'commands', 'okf', 'capture.md')));
+  assert.ok(existsSync(join(home, '.claude', 'skills', 'okf-recall', 'SKILL.md')), 'recall pairs with capture at user scope');
+  assert.ok(existsSync(join(home, '.claude', 'commands', 'okf', 'recall.md')));
 });
 
 test('codex installs a Stop hook and AGENTS.md guidance, and needs no arming hook', () => {
@@ -137,18 +142,122 @@ test('an unknown host is refused and nothing is written', () => {
 
 test('instruction-only hosts install no hook and say so', () => {
   const { home, bundle } = isolate();
-  for (const name of ['copilot', 'agents-md']) {
-    const adapter = findAdapter(name);
-    assert.equal(adapter.hook, false);
-    const plan = adapter.plan({ command: 'okfctl', every: 1, home, bundle });
-    assert.equal(plan.hook, false);
-    assert.ok(plan.unsupported.length > 0, 'the gap is named, never glossed over');
-    assert.match(plan.unsupported[0], /no equivalent mechanism/);
-  }
+  const adapter = findAdapter('agents-md');
+  assert.equal(adapter.hook, false);
+  const plan = adapter.plan({ command: 'okfctl', every: 1, home, bundle });
+  assert.equal(plan.hook, false);
+  assert.ok(plan.unsupported.length > 0, 'the gap is named, never glossed over');
+  assert.match(plan.unsupported[0], /no equivalent mechanism/);
 
-  install(home, bundle, ['copilot', 'agents-md']);
-  assert.match(readFileSync(join(home, '.github', 'copilot-instructions.md'), 'utf8'), /okfctl capture/);
-  assert.match(readFileSync(join(home, 'AGENTS.md'), 'utf8'), /okfctl capture/);
+  install(home, bundle, ['agents-md']);
+  const agents = readFileSync(join(home, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /okfctl capture/);
+  assert.match(agents, /okfctl search/, 'recall gets a section too, on the same instructions-only file');
+});
+
+test('an instructions-only host manages capture and recall as independent sections', () => {
+  const { home, bundle } = isolate();
+  install(home, bundle, ['agents-md']);
+  const both = readFileSync(join(home, 'AGENTS.md'), 'utf8');
+  assert.match(both, /## Capturing knowledge into OKF/);
+  assert.match(both, /## Finding existing knowledge in OKF/);
+
+  // Removing just the host entirely takes both; verify each section's marker
+  // independently by stripping one at a time through the same mechanism the
+  // adapter uses, so a corrupt or hand-edited section on one side would not
+  // silently take out the other.
+  const captureOnly = removeSection(both, 'recall');
+  assert.match(captureOnly!, /## Capturing knowledge into OKF/, 'capture survives removing recall');
+  assert.doesNotMatch(captureOnly!, /## Finding existing knowledge in OKF/);
+
+  const recallOnly = removeSection(both, 'capture');
+  assert.match(recallOnly!, /## Finding existing knowledge in OKF/, 'recall survives removing capture');
+  assert.doesNotMatch(recallOnly!, /## Capturing knowledge into OKF/);
+});
+
+test('a pre-existing capture-only instructions file gains a correct recall section on reinstall', () => {
+  const { home, bundle } = isolate();
+  // Simulate a capture-only install from before recall existed: only the
+  // capture section's marker, nothing else.
+  writeFileSync(join(home, 'AGENTS.md'), [
+    '<!-- okfctl:capture -->',
+    '## Capturing knowledge into OKF',
+    '',
+    'old capture text',
+    '<!-- /okfctl:capture -->',
+    '',
+  ].join('\n'));
+
+  install(home, bundle, ['agents-md']);
+  const agents = readFileSync(join(home, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /## Capturing knowledge into OKF/, 'the pre-existing capture section is refreshed');
+  assert.match(agents, /## Finding existing knowledge in OKF/, 'a recall section is added alongside it');
+});
+
+const copilotHooks = (home: string) => join(home, '.copilot', 'hooks', 'okfctl.json');
+const copilotInstructions = (home: string) => join(home, '.copilot', 'copilot-instructions.md');
+
+test('copilot installs a Stop hook (flat entry shape), instructions and skills, and needs no arming hook', () => {
+  const { home, bundle } = isolate();
+  assert.equal(install(home, bundle, ['copilot']), 0);
+
+  const config = JSON.parse(readFileSync(copilotHooks(home), 'utf8'));
+  assert.equal(config.version, 1);
+  assert.ok(Array.isArray(config.hooks.Stop), 'entries sit directly in the event array, no matcher-group wrapper');
+  assert.equal(config.hooks.UserPromptSubmit, undefined, 'stop_hook_active is its own guard');
+  assert.match(config.hooks.Stop[0].command, /okfctl hook copilot --every 1/);
+  assert.equal(config.hooks.Stop[0].type, 'command');
+
+  assert.match(readFileSync(copilotInstructions(home), 'utf8'), /okfctl capture/);
+  assert.equal(existsSync(join(home, '.github', 'copilot-instructions.md')), false, 'the old, wrong path is not written');
+
+  assert.ok(existsSync(join(home, '.copilot', 'skills', 'okf-capture', 'SKILL.md')));
+  assert.ok(existsSync(join(bundle, '.github', 'skills', 'okf-review', 'SKILL.md')));
+});
+
+test('copilot removal deletes the hook config, instructions section and skills', () => {
+  const { home, bundle } = isolate();
+  install(home, bundle, ['copilot']);
+  assert.equal(install(home, bundle, ['copilot'], { remove: true }), 0);
+
+  assert.equal(existsSync(copilotHooks(home)), false, 'a hook config that only held our entry is deleted');
+  assert.equal(existsSync(copilotInstructions(home)), false, 'an instructions file that held nothing else is deleted');
+  assert.equal(existsSync(join(home, '.copilot', 'skills', 'okf-capture', 'SKILL.md')), false);
+  assert.equal(existsSync(join(bundle, '.github', 'skills', 'okf-review', 'SKILL.md')), false);
+});
+
+test('copilot preview enumerates every path for install and removal, writing nothing', () => {
+  const { home, bundle } = isolate();
+  assert.equal(install(home, bundle, ['copilot'], { dryRun: true }), 0);
+  assert.equal(existsSync(copilotHooks(home)), false);
+  assert.equal(existsSync(copilotInstructions(home)), false);
+
+  install(home, bundle, ['copilot']);
+  const beforeHooks = readFileSync(copilotHooks(home), 'utf8');
+  const beforeInstructions = readFileSync(copilotInstructions(home), 'utf8');
+  install(home, bundle, ['copilot'], { remove: true, dryRun: true });
+  assert.equal(readFileSync(copilotHooks(home), 'utf8'), beforeHooks);
+  assert.equal(readFileSync(copilotInstructions(home), 'utf8'), beforeInstructions);
+});
+
+test('a hand-added hook in copilot\'s dedicated config file survives install and removal', () => {
+  const { home, bundle } = isolate();
+  mkdirSync(join(home, '.copilot', 'hooks'), { recursive: true });
+  writeFileSync(copilotHooks(home), JSON.stringify({
+    version: 1,
+    hooks: { Stop: [{ type: 'command', command: 'someone-elses-hook' }] },
+  }, null, 2));
+
+  install(home, bundle, ['copilot']);
+  let config = JSON.parse(readFileSync(copilotHooks(home), 'utf8'));
+  let commands = config.hooks.Stop.map((h: { command: string }) => h.command);
+  assert.ok(commands.includes('someone-elses-hook'), 'a pre-existing entry stays registered');
+  assert.ok(commands.some((c: string) => c.includes('okfctl hook')));
+
+  install(home, bundle, ['copilot'], { remove: true });
+  config = JSON.parse(readFileSync(copilotHooks(home), 'utf8'));
+  commands = config.hooks.Stop.map((h: { command: string }) => h.command);
+  assert.deepEqual(commands, ['someone-elses-hook'], 'only ours is gone, the file survives');
 });
 
 test('an instruction file keeps content that was already in it', () => {
@@ -191,6 +300,9 @@ test('removal takes back exactly what was installed', () => {
   assert.equal(config.hooks.UserPromptSubmit, undefined);
 
   assert.equal(existsSync(join(home, '.claude', 'skills', 'okf-capture', 'SKILL.md')), false);
+  assert.equal(existsSync(join(home, '.claude', 'skills', 'okf-capture', 'worth-capturing.md')), false);
+  assert.equal(existsSync(join(home, '.claude', 'skills', 'okf-recall', 'SKILL.md')), false);
+  assert.equal(existsSync(join(bundle, '.claude', 'skills', 'okf-refine', 'refining-standard.md')), false);
 
   const agents = readFileSync(join(home, 'AGENTS.md'), 'utf8');
   assert.match(agents, /Always run the tests\./);
@@ -241,7 +353,7 @@ test('removal deletes an instructions file that held nothing else', () => {
   install(home, bundle, ['agents-md', 'copilot']);
   install(home, bundle, ['agents-md', 'copilot'], { remove: true });
   assert.equal(existsSync(join(home, 'AGENTS.md')), false);
-  assert.equal(existsSync(join(home, '.github', 'copilot-instructions.md')), false);
+  assert.equal(existsSync(copilotInstructions(home)), false);
 });
 
 test('removal prunes the directories it created, and only those', () => {
@@ -281,15 +393,19 @@ test('capture installs at user scope and the curation suite into the bundle', ()
   const { home, bundle } = isolate();
   install(home, bundle, ['claude-code']);
 
-  // Capture works from any repository, so it is user scope.
+  // Capture and recall work from any repository, so they are user scope.
   assert.ok(existsSync(join(home, '.claude', 'skills', 'okf-capture', 'SKILL.md')));
   assert.ok(existsSync(join(home, '.claude', 'commands', 'okf', 'capture.md')));
+  assert.ok(existsSync(join(home, '.claude', 'skills', 'okf-capture', 'worth-capturing.md')));
+  assert.ok(existsSync(join(home, '.claude', 'skills', 'okf-recall', 'SKILL.md')));
+  assert.ok(existsSync(join(home, '.claude', 'commands', 'okf', 'recall.md')));
 
   // Curation happens where the knowledge lives, so it is project scope.
   for (const skill of ['okf-triage', 'okf-refine', 'okf-ingest', 'okf-promote', 'okf-review', 'okf-deprecate']) {
     assert.ok(existsSync(join(bundle, '.claude', 'skills', skill, 'SKILL.md')), `${skill} in the bundle`);
     assert.equal(existsSync(join(home, '.claude', 'skills', skill)), false, `${skill} is not user scope`);
   }
+  assert.ok(existsSync(join(bundle, '.claude', 'skills', 'okf-refine', 'refining-standard.md')));
   assert.ok(existsSync(join(bundle, '.claude', 'commands', 'okf', 'review.md')));
   assert.equal(existsSync(join(home, '.claude', 'commands', 'okf', 'review.md')), false);
 });
@@ -299,7 +415,10 @@ test('codex uses its own skills directories, at both scopes', () => {
   install(home, bundle, ['codex']);
 
   assert.ok(existsSync(join(home, '.agents', 'skills', 'okf-capture', 'SKILL.md')));
+  assert.ok(existsSync(join(home, '.agents', 'skills', 'okf-capture', 'worth-capturing.md')));
+  assert.ok(existsSync(join(home, '.agents', 'skills', 'okf-recall', 'SKILL.md')));
   assert.ok(existsSync(join(bundle, '.agents', 'skills', 'okf-review', 'SKILL.md')));
+  assert.ok(existsSync(join(bundle, '.agents', 'skills', 'okf-refine', 'refining-standard.md')));
   // Codex has no slash-command equivalent, so none are written.
   assert.equal(existsSync(join(bundle, '.agents', 'commands')), false);
 });
@@ -316,6 +435,21 @@ test('the installed skills are the packaged ones, byte for byte', () => {
     readFileSync(join(home, '.claude', 'skills', 'okf-capture', 'SKILL.md'), 'utf8'),
     readSkill(CAPTURE_SKILL),
   );
+
+  for (const resource of readSkillResources(CAPTURE_SKILL)) {
+    assert.equal(
+      readFileSync(join(home, '.claude', 'skills', CAPTURE_SKILL, resource.relPath), 'utf8'),
+      resource.contents,
+      `${resource.relPath} matches the packaged source`,
+    );
+  }
+  for (const resource of readSkillResources('okf-refine')) {
+    assert.equal(
+      readFileSync(join(bundle, '.claude', 'skills', 'okf-refine', resource.relPath), 'utf8'),
+      resource.contents,
+      `${resource.relPath} matches the packaged source`,
+    );
+  }
 });
 
 test('skills installed into a bundle do not become corpus', () => {
@@ -375,8 +509,8 @@ test('isInstalled is not fooled by a pre-existing, unrelated config file', () =>
   const { home, bundle } = isolate();
   mkdirSync(join(home, '.claude'), { recursive: true });
   writeFileSync(settings(home), JSON.stringify({ someOtherSetting: true }));
-  mkdirSync(join(home, '.github'), { recursive: true });
-  writeFileSync(join(home, '.github', 'copilot-instructions.md'), '# My own notes\n');
+  mkdirSync(join(home, '.copilot'), { recursive: true });
+  writeFileSync(join(home, '.copilot', 'copilot-instructions.md'), '# My own notes\n');
   mkdirSync(home, { recursive: true });
   writeFileSync(join(home, 'AGENTS.md'), '# My own notes\n');
 

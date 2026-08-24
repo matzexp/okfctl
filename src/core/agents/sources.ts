@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,6 +19,12 @@ import { fileURLToPath } from 'node:url';
 
 /** Capture works from any repository, so it installs at user scope. */
 export const CAPTURE_SKILL = 'okf-capture';
+
+/** Recall pairs with capture — reads instead of writes — and installs at the same scope. */
+export const RECALL_SKILL = 'okf-recall';
+
+/** Every skill installed at user scope, so it works from any repository. */
+export const USER_SCOPE_SKILLS = [CAPTURE_SKILL, RECALL_SKILL] as const;
 
 /**
  * Curation happens in the knowledge base, so these install into the bundle. You
@@ -47,6 +53,19 @@ export function readSkill(name: string): string {
   const file = join(sourceDir(), 'skills', name, 'SKILL.md');
   if (!existsSync(file)) throw new Error(`packaged skill "${name}" is missing at ${file}`);
   return readFileSync(file, 'utf8');
+}
+
+/**
+ * A skill's resource files: every file in its directory other than `SKILL.md`
+ * itself, read by convention rather than declared in a manifest — adding a
+ * resource file to the repository is the entire authoring step. Non-recursive;
+ * no skill in this package ships a nested resource directory yet.
+ */
+export function readSkillResources(name: string): { relPath: string; contents: string }[] {
+  const dir = join(sourceDir(), 'skills', name);
+  return readdirSync(dir)
+    .filter((entry) => entry !== 'SKILL.md')
+    .map((relPath) => ({ relPath, contents: readFileSync(join(dir, relPath), 'utf8') }));
 }
 
 export function readCommand(name: string): string {

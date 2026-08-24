@@ -93,7 +93,7 @@ directory, then the registered bundle.
 
 The system SHALL install the capture workflow into a named coding-agent host on request,
 writing to that host's user-level configuration so that sessions in any repository are
-covered, and SHALL support at least two hosts that receive an event hook and at least one
+covered, and SHALL support at least three hosts that receive an event hook and at least one
 that does not.
 
 #### Scenario: A host with a hook mechanism
@@ -120,11 +120,20 @@ that does not.
   hook prompts a capture
 - **THEN** the capture is written to the registered bundle
 
+#### Scenario: A host whose hook configuration is a flat entry list
+
+- **WHEN** init installs for a host whose hook configuration stores entries as a flat list
+  per event, rather than grouped under a matcher
+- **THEN** the installed entry is added to that event's list without disturbing any other
+  entry already in it, and removal takes back only the entry it added
+
 ### Requirement: Writing Outside The Bundle Is Additive And Reversible
 
 The system SHALL treat every path outside the bundle as one it does not own: creating files
 that are absent, merging additively into files that exist, never removing or replacing
-content it did not write, and never modifying a configuration file it could not parse.
+content it did not write, and never modifying a configuration file it could not parse. A
+file that holds more than one independently-managed section SHALL treat each section as
+separately addressable: writing, upserting, or removing one SHALL NOT disturb another.
 
 #### Scenario: An existing agent configuration is preserved
 
@@ -147,6 +156,20 @@ content it did not write, and never modifying a configuration file it could not 
 
 - **WHEN** the host already has hooks registered on the turn-completion event
 - **THEN** they remain registered alongside the installed one
+
+#### Scenario: Two sections in one instructions file are independent
+
+- **WHEN** an instructions-only host's single instructions file carries both a capture
+  section and a recall section
+- **THEN** installing, updating, or removing one section leaves the other's content
+  exactly as it was, because each is bounded by its own markers
+
+#### Scenario: A pre-existing capture-only install gains a recall section additively
+
+- **WHEN** an instructions file already holds a capture section installed before recall
+  existed, and the host is updated
+- **THEN** a recall section is added to the same file without altering the existing
+  capture section or anything the user added outside either section's markers
 
 ### Requirement: Installation Is Removable
 
@@ -182,6 +205,12 @@ other setting in the host's configuration intact.
 
 - **WHEN** removal runs for a host that is not installed
 - **THEN** the command reports that nothing was installed and changes no file
+
+#### Scenario: Removing a skill takes its resource files with it
+
+- **WHEN** an installed skill that ships a resource file is removed
+- **THEN** the resource file is deleted along with the workflow file, and no orphaned
+  resource file is left behind
 
 ### Requirement: Installation Is Previewable
 
@@ -318,16 +347,25 @@ about how the content was produced (SPEC §7).
 
 ### Requirement: Skills Install At The Scope That Matches Their Use
 
-The system SHALL install the capture workflow at user scope, so it is available in every
-repository, and the curation workflows into the bundle itself, so they load when someone
-works in the knowledge base — and SHALL place both in the directories the host actually
-reads.
+The system SHALL install the capture and recall workflows at user scope, so each is
+available in every repository, and the curation workflows into the bundle itself, so they
+load when someone works in the knowledge base — and SHALL place both in the directories
+the host actually reads. A skill that ships more than one file SHALL have every file
+installed together, at the same scope, so a workflow file and the resource file(s) it
+reads are never split across an install.
 
 #### Scenario: Capture is available everywhere
 
 - **WHEN** a hook-capable host is installed
 - **THEN** the capture workflow is written to that host's user-scope skills directory, so a
   session in any repository can run it
+
+#### Scenario: Recall is available everywhere
+
+- **WHEN** a host that supports skills is installed
+- **THEN** the recall workflow is written to that host's user-scope skills directory
+  alongside capture, so a session in any repository can search the registered bundle
+  before investigating from scratch
 
 #### Scenario: Curation lives with the knowledge
 
@@ -363,6 +401,19 @@ reads.
 
 - **WHEN** a bundle holds an out-of-date copy of a workflow and installation runs again
 - **THEN** it is replaced with the packaged version
+
+#### Scenario: A skill's resource files install alongside its workflow file
+
+- **WHEN** a skill that ships a resource file in addition to its workflow file is
+  installed
+- **THEN** the resource file is written next to the workflow file, at the same path
+  depth, so the workflow file's reference to it resolves at every host and scope
+
+#### Scenario: Reinstalling refreshes a stale resource file
+
+- **WHEN** a bundle or host holds an out-of-date copy of a skill's resource file and
+  installation runs again
+- **THEN** it is replaced with the packaged version, exactly as its workflow file is
 
 ### Requirement: The Hook Fires At Turn Completion
 
@@ -485,6 +536,13 @@ per-host code responsible only for where and in what form the configuration is w
 - **WHEN** support for a further hook-capable host is added
 - **THEN** it requires a configuration writer and no change to the hook program
 
+#### Scenario: A host with a differently-shaped hook configuration
+
+- **WHEN** the added host's hook configuration is a flat per-event entry list instead of
+  the matcher-group shape existing hosts use
+- **THEN** it still requires only a configuration writer for that shape, and no change to
+  the shared hook program or its payload contract
+
 ### Requirement: The Portable Core Is The Capture Verb
 
 Every adapter SHALL drive capture through the same command-line verb, so that adding a
@@ -495,3 +553,22 @@ host is a new configuration writer rather than a new capture path.
 - **WHEN** two different hosts' installed instructions are compared
 - **THEN** both invoke the same capture verb with the same contract, differing only in how
   the host is told to invoke it
+
+### Requirement: A Section Marker Is Parameterized By Section Identity
+
+The system SHALL identify each managed section in an instructions file by a stable,
+distinct marker derived from that section's identity, so a file can carry more than one
+independently-managed section without one section's install or removal logic being able
+to match another's.
+
+#### Scenario: Existing installs remain readable
+
+- **WHEN** the marker mechanism is extended to support more than one section
+- **THEN** the marker text an already-installed capture section carries on disk is
+  unchanged, and it continues to be found, upserted, and removed correctly
+
+#### Scenario: A new section gets its own marker
+
+- **WHEN** a new managed section is introduced
+- **THEN** it is identified by a marker distinct from every other section's, derived from
+  its own identity rather than reusing another section's

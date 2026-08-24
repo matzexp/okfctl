@@ -10,8 +10,8 @@ so the lifecycle is exercised rather than merely available.
 
 ### Requirement: Workflow Coverage
 
-The system SHALL ship one skill per lifecycle moment, covering capture, refine, ingest,
-promotion, deprecation, review, and triage, each discoverable by an agent from its
+The system SHALL ship one skill per lifecycle moment, covering capture, recall, refine,
+ingest, promotion, deprecation, review, and triage, each discoverable by an agent from its
 description alone without the user naming the file.
 
 #### Scenario: Capture
@@ -20,6 +20,13 @@ description alone without the user naming the file.
   or save it, or an installed host prompt asks the agent to do so
 - **THEN** the capture workflow is selected, and it writes into the dumps area through the
   CLI's capture verb rather than by writing frontmatter by hand
+
+#### Scenario: Recall
+
+- **WHEN** the user asks whether something is already known, or the agent is about to
+  begin non-trivial investigation that a knowledge base might already answer
+- **THEN** the recall workflow is selected, and it searches the registered bundle through
+  the CLI's search verb rather than proceeding on the assumption that nothing is known yet
 
 #### Scenario: Refine
 
@@ -69,6 +76,13 @@ description alone without the user naming the file.
   versus turning what is already in the dumps area into typed entries
 - **THEN** capture is selected for the former and refine for the latter, because they act
   on different backlogs — raw dumps arriving, and raw dumps becoming structured entries
+
+#### Scenario: Recall and search are distinguishable from capture
+
+- **WHEN** the user's request is about finding out what a bundle already knows, rather
+  than writing something new into it
+- **THEN** the recall workflow is selected rather than capture, because recall reads the
+  bundle and capture writes to it
 
 ### Requirement: The CLI Is The Only Writer
 
@@ -220,6 +234,44 @@ conversation, and SHALL record the agent as the producer of that summary.
 - **THEN** the dump goes to the dumps area with a provisional type rather than being
   filed into the corpus on a guess
 
+#### Scenario: The durability criteria live in a dedicated resource
+
+- **WHEN** the capture workflow judges whether something is worth keeping
+- **THEN** it applies the full criteria from its own reference file, not a copy embedded
+  in the always-loaded workflow file, so the same criteria is not maintained twice
+
+### Requirement: Recall Interprets Trust Before Acting On It
+
+The recall workflow SHALL search the registered bundle through the CLI's search verb, and
+SHALL treat a result's area and trust tier as part of the finding, never presenting an
+unreviewed or unverified match with the same confidence as a human-reviewed, stable one.
+
+#### Scenario: A stable, human-reviewed hit is citable
+
+- **WHEN** a search result comes from the corpus with `status: stable` and
+  `trust: human-reviewed`
+- **THEN** the workflow may present it as established, citing the concept directly
+
+#### Scenario: A dumps- or drafts-area hit is a lead, not a fact
+
+- **WHEN** a search result comes from the dumps or drafts area, or carries
+  `trust: unverified`
+- **THEN** the workflow presents it as unverified material worth checking, not as
+  settled knowledge, and says so plainly if it is surfaced to the user
+
+#### Scenario: No policy file governs recall
+
+- **WHEN** the recall workflow runs against a bundle with `.okf/policy/` populated
+- **THEN** it does not read any of the three policy files, because none of them scopes
+  how search results should be interpreted — that judgment is generic to OKF's trust-tier
+  model, not a bundle-specific convention
+
+#### Scenario: Recall never writes
+
+- **WHEN** the recall workflow finds relevant existing knowledge
+- **THEN** the bundle is unchanged by the search itself, and any follow-up write is a
+  separate, explicit act through capture, refine, ingest, or review
+
 ### Requirement: Refine Turns Dumps Into Typed Entries
 
 The refine workflow SHALL convert one or more dumps-area concepts into a typed, titled,
@@ -258,6 +310,37 @@ authorship of restated findings.
   it is claiming
 - **THEN** the workflow leaves it in the dumps area and reports why, rather than filing
   a guess into the drafts area
+
+#### Scenario: Refine's standard is self-contained
+
+- **WHEN** the refine workflow judges shape, type, and title
+- **THEN** it applies criteria stated in its own reference file, not a cross-reference to
+  another workflow's judgment, so refine's standard can be read, and changed, on its own
+
+### Requirement: Judgment Criteria Live In A Reference File, Read At The Point Of Use
+
+A workflow whose judgment call rests on a long, enumerable criteria list SHALL ship that
+list as a resource file separate from its always-loaded workflow file, and SHALL read it
+when the workflow reaches the step that judgment informs, rather than embedding the full
+list in text loaded on every invocation regardless of whether that step is reached.
+
+#### Scenario: The workflow file stays short
+
+- **WHEN** a skill's workflow file is loaded to begin a run
+- **THEN** it states the procedure and a short test for the judgment call, and defers the
+  enumerated criteria to its reference file rather than inlining them
+
+#### Scenario: The reference file is read when the judgment is made
+
+- **WHEN** the workflow reaches the step that needs the full criteria
+- **THEN** it reads the reference file at that point, and applies it exactly as it would
+  if the criteria had been inline
+
+#### Scenario: One skill's criteria is not another's default
+
+- **WHEN** two workflows each have their own judgment call
+- **THEN** each has its own reference file, and neither is defined by pointing at the
+  other's file
 
 ### Requirement: Refine Supports A Gated And An Automatic Mode
 

@@ -266,25 +266,28 @@ $EDITOR .okf/policy/field-policy.md  # narrow it to your own bundle's convention
 
 ## Agent hooks
 
-`okfctl init --agent <host>` installs the capture workflow into a coding agent's
-**user-level** configuration, so it applies in every repository — not just the bundle's own.
+`okfctl init --agent <host>` installs the capture and recall workflows into a coding
+agent's **user-level** configuration, so they apply in every repository — not just the
+bundle's own.
 
 It installs at **two scopes**, because the workflows are not used in the same place.
-`okf-capture` goes to user scope so it works in every repository; the six curation
-workflows — triage, refine, ingest, promote, review, deprecate — go **into the bundle**, so
-they load when you open your knowledge base and nowhere else.
+`okf-capture` and `okf-recall` go to user scope so they work in every repository — capture
+writes a session's knowledge in, recall reads the bundle's knowledge out before
+investigating something from scratch; the six curation workflows — triage, refine,
+ingest, promote, review, deprecate — go **into the bundle**, so they load when you open
+your knowledge base and nowhere else.
 
-| | Claude Code | Codex |
-|---|---|---|
-| **user** — capture | `~/.claude/skills/`, `~/.claude/commands/okf/` | `~/.agents/skills/` |
-| **project** — curation | `<bundle>/.claude/skills/`, `<bundle>/.claude/commands/okf/` | `<bundle>/.agents/skills/` |
-| hook | `~/.claude/settings.json` | `~/.codex/hooks.json` |
+| | Claude Code | Codex | Copilot |
+|---|---|---|---|
+| **user** — capture, recall | `~/.claude/skills/`, `~/.claude/commands/okf/` | `~/.agents/skills/` | `~/.copilot/skills/` |
+| **project** — curation | `<bundle>/.claude/skills/`, `<bundle>/.claude/commands/okf/` | `<bundle>/.agents/skills/` | `<bundle>/.github/skills/` |
+| hook | `~/.claude/settings.json` | `~/.codex/hooks.json` | `~/.copilot/hooks/okfctl.json` |
 
 | Host | Event hook | Notes |
 |---|---|---|
 | `claude-code` | yes — `Stop` | skills and slash commands at both scopes |
 | `codex` | yes — `Stop` | skills at both scopes plus `~/.codex/AGENTS.md`; no slash-command equivalent |
-| `copilot` | no | `~/.github/copilot-instructions.md` only — the host has no equivalent mechanism |
+| `copilot` | yes — `Stop` | skills at both scopes plus `~/.copilot/copilot-instructions.md`; no slash-command equivalent. A `copilot` host installed before this table's Copilot column existed wrote to `~/.github/copilot-instructions.md` with no hook — re-run `okfctl init --agent copilot` (or `okfctl update`) and remove that stale file by hand, since okfctl only ever manages paths its current adapter still writes to |
 | `agents-md` | no | `~/AGENTS.md` only |
 
 A bundle's `.claude/` and `.agents/` directories are dotfiles, which the bundle walk skips —
@@ -418,13 +421,16 @@ conformant first concept.
 
 The CLI knows *how* to make each change. The skills in [`skills/`](skills/), with their
 slash-command wrappers in [`commands/okf/`](commands/okf/), know *when*. Each is host-neutral —
-one `SKILL.md` per skill, placed into a host's own directory layout at install time — and
-invocable in Claude Code by name as `/okf:<name>`, or selected from its description.
-`okfctl init --agent <host>` installs them — capture at user scope, the rest into your bundle.
+a `SKILL.md` per skill, plus any sibling reference file that skill's own judgment call
+defers to (`okf-capture`'s `worth-capturing.md`, `okf-refine`'s `refining-standard.md`),
+placed into a host's own directory layout at install time — and invocable in Claude Code
+by name as `/okf:<name>`, or selected from its description.
+`okfctl init --agent <host>` installs them — capture and recall at user scope, the rest into your bundle.
 
 | Skill | For |
 |---|---|
 | `okf-capture` | A session produced something worth keeping. Summarizes it into the dumps area — or declines, which is the right answer more often than not. |
+| `okf-recall` | Before non-trivial investigation, or "have we seen this before?" Searches the bundle and weighs the answer by trust tier — a stable, human-reviewed hit is citable; anything else is a lead. Never writes. |
 | `okf-triage` | "How is this bundle doing?" Reports health, names the workflow each finding needs, and writes nothing. |
 | `okf-refine` | The dumps inbox. Turns raw dumps into typed, titled entries in the drafts area — one dump split into several, or several consolidated into one — citing what each drew from. |
 | `okf-ingest` | New knowledge arriving. Matches the bundle's own types and placement, creates through `new`, then writes the body. |

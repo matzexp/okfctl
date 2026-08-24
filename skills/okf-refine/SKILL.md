@@ -34,11 +34,12 @@ per entry.
 2. **Read this bundle's content and field policy, if it has one**
 
    Check for `.okf/policy/content-policy.md` and `.okf/policy/field-policy.md`. If either
-   exists, read it and apply it to the shape/type/title judgment in steps 4-5 below —
+   exists, read it and apply it to the shape/type/title judgment in step 4 below —
    policy may narrow what this bundle wants refined, or state per-type field conventions
    this bundle already agreed on. It cannot widen what the guardrails below forbid: it can
    never license inventing an actor, skipping a citation, or claiming a dump's findings as
-   your own first-hand work. Proceed on the generic judgment below if no policy file exists.
+   your own first-hand work. Proceed on `refining-standard.md`'s judgment if no policy
+   file exists.
 
 3. **Read the dumps inbox**
 
@@ -50,30 +51,20 @@ per entry.
    with its frontmatter — the title on a capture is a one-line summary, not necessarily the
    shape the refined entry should take.
 
-4. **Decide the shape: one-to-one, split, or consolidate**
+4. **Decide the shape, type, and title**
 
-   Read each dump and ask what it actually contains:
+   The test: does this dump map to one drafts-area entry, several, or does it overlap
+   another dump already in the inbox — and, once that's settled, what would a reader
+   recognize this as in an index, filed where the bundle already files things like it?
+   Read `refining-standard.md` (in this skill's own directory) for the full criteria:
+   the one-to-one/split/consolidate shape decision, matching type and directory against
+   the bundle's existing conventions, and what to do when a dump cannot be confidently
+   refined at all.
 
-   - **One clear finding** → refine it into exactly one drafts-area entry.
-   - **Several distinct findings sharing one dump** (a session's end-of-turn capture often
-     does this) → refine it into one entry per finding. Check that literally: a split that
-     quietly drops the third paragraph is the failure mode here, and nothing will report it.
-   - **Several dumps that substantially overlap** → refine them together into one entry,
-     citing all of them. Do not create near-duplicate entries that will just have to be
-     merged again in review.
+   Refine has no provisional type — `--type` and `--title` are required in step 5, because
+   assigning them for real is the whole point of this step.
 
-   When in doubt, prefer more, smaller entries over one that bundles unrelated things — a
-   `okf-review` split later has to redo this judgment with less context than you have now.
-
-5. **Decide type and title — against the bundle, not from habit**
-
-   Same discipline as `okf-ingest`: read what the bundle's existing types and directories
-   are before choosing (`okfctl status --json`), and match them. Refine has no provisional
-   type — `--type` and `--title` are required, because assigning them for real is the whole
-   point of this step. A vague or restated capture title ("test finding", "gateway thing")
-   is not a title; write one a reader would recognize in an index.
-
-6. **Preview, then write**
+5. **Preview, then write**
 
    ```bash
    okfctl --bundle <root> refine <source...> \
@@ -97,7 +88,7 @@ per entry.
    measurement you have not reproduced, say so plainly in the body: "restated from
    dumps/<id>," not phrased as your own first-hand finding.
 
-7. **Decide whether to consume the source**
+6. **Decide whether to consume the source**
 
    `--consume` removes the dump(s) named in that invocation once the write succeeds. Default
    to *not* passing it until you are sure every part of a dump's content now has a home —
@@ -110,7 +101,7 @@ per entry.
    `status` as a slightly stale-looking dumps inbox. Consuming a dump whose content is not
    fully distributed yet destroys part of it. When unsure, do not pass `--consume`.
 
-8. **Report**
+7. **Report**
 
    Gated mode: report as you go, one confirmed entry at a time, or a batch summary if that
    is how you asked for confirmation. Automatic mode: report the whole batch at the end —

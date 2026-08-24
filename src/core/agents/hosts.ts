@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  applyPlan, captureInstructions, MARK_START, readIfPresent, removeSection, upsertSection,
+  applyPlan, captureInstructions, recallInstructions, readIfPresent, removeSection,
+  sectionMarkers, upsertSection,
   type Adapter, type Edit, type InstallContext, type Plan,
 } from './adapter.ts';
 import {
-  CAPTURE_SKILL, LIFECYCLE_SKILLS, commandStem, readCommand, readSkill,
+  CAPTURE_SKILL, USER_SCOPE_SKILLS, LIFECYCLE_SKILLS, commandStem, readCommand,
+  readSkill, readSkillResources,
 } from './sources.ts';
 
 /** How the installed entry is recognized again, for idempotence and removal. */
@@ -54,6 +56,35 @@ function removeHook(config: HookConfig, event: string): HookConfig {
   const cleaned = config[event]
     .map((group) => ({ ...group, hooks: (group.hooks ?? []).filter((entry) => !isOurs(entry)) }))
     .filter((group) => group.hooks.length > 0);
+  const next = { ...config };
+  if (cleaned.length === 0) delete next[event];
+  else next[event] = cleaned;
+  return next;
+}
+
+interface FlatHookEntry {
+  type: 'command';
+  command: string;
+  timeoutSec?: number;
+}
+
+type FlatHookConfig = Record<string, FlatHookEntry[]>;
+
+/**
+ * Copilot's hook config has no matcher-group wrapper: entries sit directly in
+ * each event's array. Filter-then-push, same idempotence contract as
+ * `upsertHook`, one nesting level shallower.
+ */
+function upsertFlatHook(config: FlatHookConfig, event: string, command: string): FlatHookConfig {
+  const existing = Array.isArray(config[event]) ? config[event] : [];
+  const cleaned = existing.filter((entry) => !isOurs(entry));
+  cleaned.push({ type: 'command', command, timeoutSec: 30 });
+  return { ...config, [event]: cleaned };
+}
+
+function removeFlatHook(config: FlatHookConfig, event: string): FlatHookConfig {
+  if (!Array.isArray(config[event])) return config;
+  const cleaned = config[event].filter((entry) => !isOurs(entry));
   const next = { ...config };
   if (cleaned.length === 0) delete next[event];
   else next[event] = cleaned;
@@ -115,9 +146,9 @@ function edit(path: string, contents: string | null, describe: string): Edit {
  * only existed because we created it, so it goes too — removal takes back what
  * it installed, and an empty husk is not "taken back".
  */
-function sectionRemoval(path: string, what: string): Edit {
+function sectionRemoval(path: string, id: string, what: string): Edit {
   const existing = readIfPresent(path);
-  const stripped = removeSection(existing);
+  const stripped = removeSection(existing, id);
   const emptied = stripped !== null && stripped.trim() === '';
   return {
     path,
@@ -179,6 +210,63 @@ function jsonHookPlan(
 }
 
 /**
+ * A hook config the host loads as its own dedicated file, not merged into a
+ * shared settings file — Copilot reads every `*.json` under `~/.copilot/hooks/`
+ * itself, so `okfctl` can own one file outright rather than parse-merge-preserve
+ * into someone else's. Still upserts by marker (`isOurs()`) rather than
+ * unconditionally overwriting, for the same reason `jsonHookPlan` does: a
+ * caller could point `COPILOT_HOME` at a directory holding an unrelated
+ * `okfctl.json`, or hand-add another hook to the same file later.
+ */
+function flatHookPlan(
+  host: string,
+  configPath: string,
+  event: string,
+  context: InstallContext,
+  extra: Edit[],
+  remove: boolean,
+): Plan {
+  const current = readJson(configPath);
+  if (current === null) {
+    throw new Error(
+      `cannot parse ${configPath}; fix or remove it before installing — okfctl will not rewrite a config it cannot read`,
+    );
+  }
+
+  const hooks = (current.hooks && typeof current.hooks === 'object'
+    ? current.hooks
+    : {}) as FlatHookConfig;
+
+  const next = remove
+    ? removeFlatHook(hooks, event)
+    : upsertFlatHook(hooks, event, hookCommand(context, host));
+
+  const merged = { version: 1, ...current, hooks: next };
+  if (remove && Object.keys(next).length === 0) delete (merged as Record<string, unknown>).hooks;
+
+  // This file only ever holds `version` and `hooks` unless something else wrote
+  // into it — empty of both means it only existed because we created it.
+  const remainingKeys = Object.keys(merged).filter((key) => key !== 'version' && key !== 'hooks');
+  const emptied = remove && Object.keys(next).length === 0 && remainingKeys.length === 0;
+
+  const describe = remove
+    ? emptied
+      ? 'delete the config, which holds nothing else'
+      : `remove the ${event} hook, keeping every other setting`
+    : `${event} hook, every ${context.every} turn${context.every === 1 ? '' : 's'}`;
+
+  return {
+    host,
+    edits: [
+      edit(configPath, emptied ? null : `${JSON.stringify(merged, null, 2)}\n`, describe),
+      ...extra,
+    ],
+    unsupported: [],
+    hook: true,
+  };
+}
+
+/**
  * Where a host loads skills from, per scope. Both hosts read the same `SKILL.md`
  * standard, so the suite is written once and placed twice.
  */
@@ -200,18 +288,27 @@ function skillEdits(context: InstallContext, layout: SkillLayout, remove: boolea
   const put = (path: string, contents: string, describe: string) =>
     edits.push(edit(path, remove ? null : contents, remove ? `delete ${describe}` : describe));
 
-  // Capture must work from any repository, so it goes to user scope.
-  put(
-    at(context.home, [...layout.userSkills, CAPTURE_SKILL, 'SKILL.md']),
-    readSkill(CAPTURE_SKILL),
-    `the ${CAPTURE_SKILL} skill`,
-  );
-  if (layout.userCommands) {
+  // Capture and recall must work from any repository, so they go to user scope.
+  for (const skill of USER_SCOPE_SKILLS) {
     put(
-      at(context.home, [...layout.userCommands, `${commandStem(CAPTURE_SKILL)}.md`]),
-      readCommand(CAPTURE_SKILL),
-      `the /okf:${commandStem(CAPTURE_SKILL)} command`,
+      at(context.home, [...layout.userSkills, skill, 'SKILL.md']),
+      readSkill(skill),
+      `the ${skill} skill`,
     );
+    for (const resource of readSkillResources(skill)) {
+      put(
+        at(context.home, [...layout.userSkills, skill, resource.relPath]),
+        resource.contents,
+        `the ${skill} skill's ${resource.relPath}`,
+      );
+    }
+    if (layout.userCommands) {
+      put(
+        at(context.home, [...layout.userCommands, `${commandStem(skill)}.md`]),
+        readCommand(skill),
+        `the /okf:${commandStem(skill)} command`,
+      );
+    }
   }
 
   // Curation happens in the knowledge base, so the rest go into the bundle.
@@ -221,6 +318,13 @@ function skillEdits(context: InstallContext, layout: SkillLayout, remove: boolea
       readSkill(skill),
       `the ${skill} skill`,
     );
+    for (const resource of readSkillResources(skill)) {
+      put(
+        at(context.bundle, [...layout.projectSkills, skill, resource.relPath]),
+        resource.contents,
+        `the ${skill} skill's ${resource.relPath}`,
+      );
+    }
     if (layout.projectCommands) {
       put(
         at(context.bundle, [...layout.projectCommands, `${commandStem(skill)}.md`]),
@@ -262,6 +366,18 @@ const CLAUDE_LAYOUT: SkillLayout = {
 const CODEX_LAYOUT: SkillLayout = {
   userSkills: ['.agents', 'skills'],
   projectSkills: ['.agents', 'skills'],
+};
+
+/**
+ * Copilot reads `.github/skills` (also `.claude/skills`/`.agents/skills`, but
+ * `.github/skills` is the one this project doesn't already write for another
+ * host) at project scope and `~/.copilot/skills` at user scope. Skills
+ * auto-expose as `/skill-name`, so — like Codex — there is no separate
+ * command directory to write.
+ */
+const COPILOT_LAYOUT: SkillLayout = {
+  userSkills: ['.copilot', 'skills'],
+  projectSkills: ['.github', 'skills'],
 };
 
 /**
@@ -311,13 +427,13 @@ const codex: Adapter = {
   plan(context) {
     const agents = join(context.home, '.codex', 'AGENTS.md');
     return jsonHookPlan('codex', join(context.home, '.codex', 'hooks.json'), ['Stop'], context, [
-      edit(agents, upsertSection(readIfPresent(agents), captureInstructions(context.command)), 'capture instructions in AGENTS.md'),
+      edit(agents, upsertSection(readIfPresent(agents), 'capture', captureInstructions(context.command)), 'capture instructions in AGENTS.md'),
       ...skillEdits(context, CODEX_LAYOUT, false),
     ], false);
   },
   planRemoval(context) {
     return jsonHookPlan('codex', join(context.home, '.codex', 'hooks.json'), ['Stop'], context, [
-      sectionRemoval(join(context.home, '.codex', 'AGENTS.md'), 'the capture section in AGENTS.md'),
+      sectionRemoval(join(context.home, '.codex', 'AGENTS.md'), 'capture', 'the capture section in AGENTS.md'),
       ...skillEdits(context, CODEX_LAYOUT, true),
     ], true);
   },
@@ -326,38 +442,107 @@ const codex: Adapter = {
   },
 };
 
-/** A host with no event mechanism gets instructions, and is told so plainly. */
+/**
+ * A host with no event mechanism gets instructions, and is told so plainly.
+ * Both capture and recall are text sections in the one file, independently
+ * upsertable/removable by their own markers — removing one never disturbs
+ * the other, or anything the user added outside either.
+ */
 function instructionsOnly(name: string, file: (context: InstallContext) => string): Adapter {
   return {
     name,
     hook: false,
     plan(context) {
       const path = file(context);
+      let contents = readIfPresent(path);
+      contents = upsertSection(contents, 'capture', captureInstructions(context.command));
+      contents = upsertSection(contents, 'recall', recallInstructions(context.command));
       return {
         host: name,
-        edits: [edit(path, upsertSection(readIfPresent(path), captureInstructions(context.command)), 'capture instructions')],
+        edits: [edit(path, contents, 'capture and recall instructions')],
         unsupported: ['event hooks — this host has no equivalent mechanism, so nothing fires automatically'],
         hook: false,
       };
     },
     planRemoval(context) {
       const path = file(context);
+      const existing = readIfPresent(path);
+      let stripped = removeSection(existing, 'capture');
+      stripped = removeSection(stripped, 'recall');
+      const emptied = stripped !== null && stripped.trim() === '';
       return {
         host: name,
-        edits: [sectionRemoval(path, 'the capture section')],
+        edits: [{
+          path,
+          contents: emptied ? null : stripped,
+          existed: existing !== null,
+          describe: emptied
+            ? `delete ${path.split('/').pop()}, which holds nothing else`
+            : 'remove the capture and recall sections',
+        }],
         unsupported: [],
         hook: false,
       };
     },
     isInstalled(context) {
       const existing = readIfPresent(file(context));
-      return existing !== null && existing.includes(MARK_START);
+      return existing !== null && existing.includes(sectionMarkers('capture').start);
     },
   };
 }
 
-const copilot = instructionsOnly('copilot', (context) =>
-  join(context.home, '.github', 'copilot-instructions.md'));
+/**
+ * Copilot. Registered under the event name `Stop`, not `agentStop` — Copilot
+ * emits a "VS Code compatible" payload shape under that name
+ * (`hook_event_name`, `session_id`, `stop_hook_active`, snake_case) that
+ * matches `hook.ts`'s existing `Payload` parser exactly. `agentStop` would get
+ * camelCase fields the parser does not recognize, silently degrading every
+ * event to a no-op. `stop_hook_active` self-reports continuations the same
+ * way Codex's does, so no arming hook is needed here either. Hook config goes
+ * to a dedicated file at `~/.copilot/hooks/`, not merged into shared
+ * settings — see `flatHookPlan`. Instructions go to `~/.copilot/copilot-instructions.md`,
+ * Copilot's actual user-scope (cross-repository) custom-instructions path —
+ * `~/.github/copilot-instructions.md` is not a path Copilot reads at all.
+ */
+const copilot: Adapter = {
+  name: 'copilot',
+  hook: true,
+  plan(context) {
+    const instructions = join(context.home, '.copilot', 'copilot-instructions.md');
+    return flatHookPlan(
+      'copilot',
+      join(context.home, '.copilot', 'hooks', 'okfctl.json'),
+      'Stop',
+      context,
+      [
+        edit(
+          instructions,
+          upsertSection(readIfPresent(instructions), 'capture', captureInstructions(context.command)),
+          'capture instructions in copilot-instructions.md',
+        ),
+        ...skillEdits(context, COPILOT_LAYOUT, false),
+      ],
+      false,
+    );
+  },
+  planRemoval(context) {
+    const instructions = join(context.home, '.copilot', 'copilot-instructions.md');
+    return flatHookPlan(
+      'copilot',
+      join(context.home, '.copilot', 'hooks', 'okfctl.json'),
+      'Stop',
+      context,
+      [
+        sectionRemoval(instructions, 'capture', 'the capture section in copilot-instructions.md'),
+        ...skillEdits(context, COPILOT_LAYOUT, true),
+      ],
+      true,
+    );
+  },
+  isInstalled(context) {
+    return isWiredToThisBundle(context, COPILOT_LAYOUT);
+  },
+};
 
 const agentsMd = instructionsOnly('agents-md', (context) => join(context.home, 'AGENTS.md'));
 

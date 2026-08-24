@@ -77,28 +77,35 @@ export function readIfPresent(path: string): string | null {
 /**
  * Add a section to a Markdown instructions file without disturbing what is
  * already there. Delimited so removal can take back exactly what was added.
+ * Marker text is parameterized by a section id so one file can carry more
+ * than one independently-managed section — `'capture'`'s marker text is
+ * unchanged from before this was parameterized, so an install made when
+ * there was only ever one section still upserts and removes correctly.
  */
-export const MARK_START = '<!-- okfctl:capture -->';
-export const MARK_END = '<!-- /okfctl:capture -->';
+export function sectionMarkers(id: string): { start: string; end: string } {
+  return { start: `<!-- okfctl:${id} -->`, end: `<!-- /okfctl:${id} -->` };
+}
 
-export function upsertSection(existing: string | null, section: string): string {
-  const block = `${MARK_START}\n${section.trim()}\n${MARK_END}`;
+export function upsertSection(existing: string | null, id: string, section: string): string {
+  const { start, end } = sectionMarkers(id);
+  const block = `${start}\n${section.trim()}\n${end}`;
   if (existing === null || existing.trim() === '') return `${block}\n`;
 
-  const start = existing.indexOf(MARK_START);
-  const end = existing.indexOf(MARK_END);
-  if (start !== -1 && end !== -1 && end > start) {
-    return existing.slice(0, start) + block + existing.slice(end + MARK_END.length);
+  const startIdx = existing.indexOf(start);
+  const endIdx = existing.indexOf(end);
+  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+    return existing.slice(0, startIdx) + block + existing.slice(endIdx + end.length);
   }
   return `${existing.replace(/\n+$/, '')}\n\n${block}\n`;
 }
 
-export function removeSection(existing: string | null): string | null {
+export function removeSection(existing: string | null, id: string): string | null {
   if (existing === null) return null;
-  const start = existing.indexOf(MARK_START);
-  const end = existing.indexOf(MARK_END);
-  if (start === -1 || end === -1 || end < start) return existing;
-  const stripped = existing.slice(0, start) + existing.slice(end + MARK_END.length);
+  const { start, end } = sectionMarkers(id);
+  const startIdx = existing.indexOf(start);
+  const endIdx = existing.indexOf(end);
+  if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) return existing;
+  const stripped = existing.slice(0, startIdx) + existing.slice(endIdx + end.length);
   return stripped.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '');
 }
 
@@ -121,5 +128,27 @@ export function captureInstructions(command: string): string {
     '',
     'If nothing durable came out of the session, write nothing. An inbox of noise is worse',
     'than an empty one.',
+  ].join('\n');
+}
+
+/** The instructions every host receives, in the host's own file. */
+export function recallInstructions(command: string): string {
+  return [
+    '## Finding existing knowledge in OKF',
+    '',
+    'Before starting non-trivial investigation, or when asked whether something is already',
+    'known, check the knowledge base first — it may already answer the question:',
+    '',
+    '```bash',
+    `${command} search "<query>"`,
+    '```',
+    '',
+    'Read each result\'s area and trust tier before acting on it. A `corpus` hit with',
+    '`status: stable` and `trust: human-reviewed` is citable as established fact. A hit in',
+    '`dumps` or `drafts`, or carrying `trust: unverified`, is a lead worth checking, not a',
+    'fact to repeat without saying it is unverified.',
+    '',
+    'Searching writes nothing. If nothing relevant turns up, proceed with the investigation',
+    'normally.',
   ].join('\n');
 }
