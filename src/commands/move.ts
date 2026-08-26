@@ -17,12 +17,15 @@ export interface MoveOptions {
   noIndex?: boolean;
 }
 
-/** One file we are about to write, kept with what was there before. */
-interface Staged {
+/** A file whose prior bytes are held so rollback can put them back. */
+interface Restorable {
   file: string;
-  contents: string;
   /** Prior contents, or null when the file did not exist. */
   previous: string | null;
+}
+
+interface Staged extends Restorable {
+  contents: string;
 }
 
 export function runMove(from: string, to: string, options: MoveOptions): number {
@@ -121,7 +124,7 @@ export function runMove(from: string, to: string, options: MoveOptions): number 
 
   // Stage every write, then apply. A relocation that half-happened leaves a
   // bundle whose links point at a file that is neither here nor there.
-  const done: Staged[] = [];
+  const done: Restorable[] = [];
   let moved = false;
   try {
     for (const write of staged) {
@@ -132,7 +135,15 @@ export function runMove(from: string, to: string, options: MoveOptions): number 
     renameSync(source.file, targetFile);
     moved = true;
 
-    if (!options.noLog) appendLogEntry(logFile, entry, isoDay());
+    if (!options.noLog) {
+      // Staged like every other write, so a failure after this point does not
+      // leave the log asserting a relocation that was rolled back.
+      done.push({
+        file: logFile,
+        previous: existsSync(logFile) ? readFileSync(logFile, 'utf8') : null,
+      });
+      appendLogEntry(logFile, entry, isoDay());
+    }
     if (!options.noIndex) regenerateIndexes(loadBundle(bundle.root), [...new Set(dirs)]);
   } catch (error) {
     rollback(done, moved ? { fromFile: source.file, targetFile } : null);
@@ -145,7 +156,7 @@ export function runMove(from: string, to: string, options: MoveOptions): number 
   return 0;
 }
 
-function rollback(done: Staged[], file: { fromFile: string; targetFile: string } | null): void {
+function rollback(done: Restorable[], file: { fromFile: string; targetFile: string } | null): void {
   if (file && existsSync(file.targetFile)) {
     try {
       renameSync(file.targetFile, file.fromFile);

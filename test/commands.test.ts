@@ -67,6 +67,53 @@ test('check separates conformance errors from advisory warnings', () => {
   assert.equal(diagnostics.some((entry) => entry.rule === 'index-frontmatter'), false);
 });
 
+test('prose in index.md is prose, not frontmatter keys', () => {
+  const dir = sandbox();
+  // Body lines shaped like `key:` are ordinary writing. Scanning the whole file
+  // for them turned "Note:" into a hard conformance error that failed CI.
+  writeFileSync(join(dir, 'index.md'), [
+    '---',
+    'okf_version: "0.2"',
+    '---',
+    '',
+    '# Knowledge base',
+    '',
+    'Note: this bundle is maintained by agents.',
+    'Usage: point okfctl at the root.',
+    '',
+    '```yaml',
+    'type: Decision',
+    '```',
+    '',
+  ].join('\n'));
+
+  const diagnostics = checkBundle(loadBundle(dir));
+  assert.equal(
+    diagnostics.some((entry) => entry.rule === 'index-frontmatter'), false,
+    'no key violation is reported for body prose',
+  );
+});
+
+test('a root index.md whose frontmatter does not parse is an error', () => {
+  const dir = sandbox();
+  writeFileSync(join(dir, 'index.md'), '---\nokf_version: "0.2\n  bad: [\n---\n\n# Broken\n');
+
+  const diagnostics = checkBundle(loadBundle(dir));
+  const error = diagnostics.find((entry) => entry.rule === 'index-frontmatter');
+  assert.ok(error, 'unparseable reserved-file frontmatter is reported');
+  assert.equal(error!.level, 'error');
+});
+
+test('an extra key in root index.md frontmatter is still an error', () => {
+  const dir = sandbox();
+  writeFileSync(join(dir, 'index.md'), '---\nokf_version: "0.2"\ntitle: Nope\n---\n\n# Root\n');
+
+  const diagnostics = checkBundle(loadBundle(dir));
+  const error = diagnostics.find((entry) => entry.rule === 'index-frontmatter');
+  assert.ok(error);
+  assert.match(error!.message, /found title/);
+});
+
 test('promote records verification, flips status, and logs it', () => {
   const dir = sandbox();
   const code = quietly(() =>

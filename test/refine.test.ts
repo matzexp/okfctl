@@ -4,7 +4,8 @@ import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadBundle } from '../src/core/bundle.ts';
+import { findConcept, loadBundle } from '../src/core/bundle.ts';
+import { checkRefs } from '../src/core/refs.ts';
 import { runRefine } from '../src/commands/refine.ts';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/bundle', import.meta.url));
@@ -254,6 +255,25 @@ test('a failed --extend restores the draft rather than deleting it', () => {
   assert.equal(readFileSync(file, 'utf8'), before, 'its prior contents are back, byte for byte');
 });
 
+test('a failed refine leaves no log entry for the write it rolled back', () => {
+  const root = sandbox();
+  const logFile = join(root, 'log.md');
+  const before = readFileSync(logFile, 'utf8');
+
+  // Fail after the log append: the index regeneration `--consume` triggers is
+  // the next step, and a directory where a concept file belongs breaks it.
+  mkdirSync(join(root, 'dumps/gateway-timeout.md.d'));
+  const dumpsIndex = join(root, 'dumps/index.md');
+  rmSync(dumpsIndex, { force: true });
+  mkdirSync(dumpsIndex);
+
+  const code = quiet(() => runRefine(['dumps/gateway-timeout'], { ...base, bundle: root, consume: true }));
+
+  assert.equal(code, 1);
+  assert.equal(readFileSync(logFile, 'utf8'), before, 'the log is byte-identical to before the attempt');
+  assert.equal(existsSync(join(root, 'dumps/gateway-timeout.md')), true, 'the consumed dump is back');
+});
+
 test('a failed fresh refine still removes the file it created', () => {
   const root = sandbox();
   rmSync(join(root, 'log.md'));
@@ -399,4 +419,48 @@ test('citing a corpus concept as a source (without --consume) is allowed and lea
   assert.match(raw, /resource: metrics\/margin/);
   assert.match(raw, /resource: dumps\/retry-budget/);
   assert.ok(existsSync(join(root, 'metrics/margin.md')), 'corpus concept untouched');
+});
+
+test('two sources sharing a basename get distinct citation ids', () => {
+  const root = sandbox();
+  mkdirSync(join(root, 'incidents'), { recursive: true });
+  // Same basename as dumps/gateway-timeout, in a different area.
+  writeFileSync(join(root, 'incidents/gateway-timeout.md'), [
+    '---',
+    'type: Incident Report',
+    'title: The gateway timeout incident',
+    '---',
+    '',
+    'What happened.',
+  ].join('\n'));
+
+  const code = quiet(() => runRefine(
+    ['dumps/gateway-timeout', 'incidents/gateway-timeout'],
+    { ...base, bundle: root },
+  ));
+  assert.equal(code, 0);
+
+  const raw = readFileSync(join(root, 'drafts/gateway-timeout-retry-finding.md'), 'utf8');
+  const ids = [...raw.matchAll(/^\s+(?:- )?id: (.+)$/gm)].map((match) => match[1].trim());
+  assert.equal(new Set(ids).size, ids.length, 'no sources[].id is used twice');
+  assert.ok(ids.includes('gateway-timeout'));
+  assert.ok(ids.includes('incidents-gateway-timeout'), 'the collision grows leftward through the path');
+});
+
+test('refine writes a bundle that its own refs check finds clean', () => {
+  const root = sandbox();
+  mkdirSync(join(root, 'incidents'), { recursive: true });
+  writeFileSync(join(root, 'incidents/gateway-timeout.md'), [
+    '---', 'type: Incident Report', 'title: The gateway timeout incident', '---', '', 'What happened.',
+  ].join('\n'));
+
+  quiet(() => runRefine(
+    ['dumps/gateway-timeout', 'incidents/gateway-timeout'],
+    { ...base, bundle: root },
+  ));
+
+  const written = findConcept(loadBundle(root), 'drafts/gateway-timeout-retry-finding');
+  const duplicates = checkRefs(written, { root })
+    .filter((entry) => entry.rule === 'source-id-duplicate');
+  assert.deepEqual(duplicates, [], 'the writer does not emit what the checker flags');
 });

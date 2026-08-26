@@ -1,10 +1,12 @@
 import { loadBundle } from '../core/bundle.ts';
 import { checkBundle, countBy, type Diagnostic } from '../core/check.ts';
+import { resolveDumpsDir } from '../core/dumps.ts';
 import { renderOutput, resolveFormat } from '../core/render.ts';
 import { bold, dim, green, red, yellow } from '../core/term.ts';
 
 export interface CheckOptions {
   bundle: string;
+  dumpsDir?: string;
   strict?: boolean;
   format?: string;
   json?: boolean;
@@ -13,7 +15,16 @@ export interface CheckOptions {
 
 export function runCheck(options: CheckOptions): number {
   const bundle = loadBundle(options.bundle);
-  const diagnostics = checkBundle(bundle);
+
+  let dumpsDir: string;
+  try {
+    dumpsDir = resolveDumpsDir(bundle.root, options.dumpsDir);
+  } catch (error) {
+    console.error(red((error as Error).message));
+    return 1;
+  }
+
+  const diagnostics = checkBundle(bundle, { dumpsDir });
   const errors = countBy(diagnostics, 'error');
   const warnings = countBy(diagnostics, 'warn');
 

@@ -5,8 +5,8 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadBundle } from '../src/core/bundle.ts';
-import { checkBundle, countBy } from '../src/core/check.ts';
+import { findConcept, loadBundle } from '../src/core/bundle.ts';
+import { checkBundle, checkConcept, countBy } from '../src/core/check.ts';
 import { runCapture, slugify } from '../src/commands/capture.ts';
 import { runMove } from '../src/commands/move.ts';
 
@@ -155,16 +155,32 @@ test('an origin is recorded outside the bundle, with git detail when there is a 
   assert.match(raw, /git@example\.com:acme\/api\.git@[0-9a-f]{7}/);
 });
 
-test('outside a repository the origin names the directory alone', () => {
+test('outside a repository the origin names the directory as a file URI', () => {
   const root = sandbox();
   const work = mkdtempSync(join(tmpdir(), 'okfctl-plain-'));
   quiet(() => runCapture({ ...base, bundle: root, title: 'From nowhere', body: 'x', from: work, noOrigin: false }));
   const raw = readFileSync(join(root, `dumps/${generated(1)}.md`), 'utf8');
   assert.match(raw, /id: origin/);
   assert.match(raw, new RegExp(`title: ${work.replace(/[/\\]/g, '.')}`));
-  // Scoped to the origin entry: the session entry legitimately carries a resource.
+
+  // The directory is a real location, so it is recorded as one — SPEC §5.1 wants a
+  // `resource` within an entry, and omitting it made every capture outside a
+  // repository arrive already carrying the `source-resource-missing` warning.
+  // What must not appear is a fabricated remote or commit.
   const originEntry = /- id: origin\n((?:    .*\n)*)/.exec(raw)![1];
-  assert.doesNotMatch(originEntry, /resource:/, 'no repository fields are invented');
+  assert.match(originEntry, /resource: file:\/\//, 'the working directory is named as a file URI');
+  assert.doesNotMatch(originEntry, /resource: (?!file:\/\/)/, 'no repository fields are invented');
+});
+
+test('a capture made outside a repository is clean under the tool that wrote it', () => {
+  const root = sandbox();
+  const work = mkdtempSync(join(tmpdir(), 'okfctl-plain-'));
+  quiet(() => runCapture({ ...base, bundle: root, title: 'From nowhere', body: 'x', from: work, noOrigin: false }));
+
+  const written = findConcept(loadBundle(root), `dumps/${generated(1)}`);
+  const selfInflicted = checkConcept(written, { root })
+    .filter((entry) => entry.rule === 'source-resource-missing');
+  assert.deepEqual(selfInflicted, [], 'the writer does not emit what the checker flags');
 });
 
 test('capturing from inside the bundle records no origin', () => {
@@ -288,4 +304,24 @@ test('no title is ever turned into an id', () => {
   quiet(() => runCapture({ bundle: root, title: 'Envoy replaces Traefik at the edge', ...base }));
   assert.equal(existsSync(join(root, 'dumps/envoy-replaces-traefik-at-the-edge.md')), false);
   assert.ok(existsSync(join(root, `dumps/${generated(1)}.md`)));
+});
+
+test('a capture-only bundle is clean: the dumps area is not asked for a description', () => {
+  const root = sandbox();
+  quiet(() => runCapture({ bundle: root, title: 'A durable finding', ...base }));
+
+  const written = findConcept(loadBundle(root), `dumps/${generated(1)}`);
+  const asked = checkConcept(written, { root, dumpsDir: 'dumps' })
+    .filter((entry) => entry.rule === 'description-missing');
+  assert.deepEqual(asked, [], 'the title is the summary until refine assigns a real one');
+});
+
+test('outside the dumps area a description is still expected', () => {
+  const root = sandbox();
+  quiet(() => runCapture({ bundle: root, title: 'Placed directly', to: 'metrics', ...base }));
+
+  const written = findConcept(loadBundle(root), `metrics/${generated(1)}`);
+  const asked = checkConcept(written, { root, dumpsDir: 'dumps' })
+    .filter((entry) => entry.rule === 'description-missing');
+  assert.equal(asked.length, 1, 'the holding-area exemption does not leak into the corpus');
 });

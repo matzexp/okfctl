@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 export interface Origin {
   /** Working directory the capture was made from. */
@@ -44,12 +45,16 @@ export function readOrigin(cwd: string): Origin {
   };
 }
 
-/** The `sources[]` entry form, or null when there is nothing worth recording. */
-export function originSource(origin: Origin): Record<string, string> | null {
+/**
+ * The `sources[]` entry form. Always carries a `resource`: SPEC §5.1 requires one
+ * within an entry, and `okfctl check` warns when it is missing — so omitting it
+ * outside a git repository made every such capture arrive already flagged by the
+ * tool that wrote it. The working directory is a real, resolvable location, so it
+ * is recorded as a `file://` URI rather than left off.
+ */
+export function originSource(origin: Origin): Record<string, string> {
   const resource = origin.remote
     ? `${origin.remote}${origin.commit ? `@${origin.commit}` : ''}`
-    : null;
-  const entry: Record<string, string> = { id: 'origin', title: origin.cwd };
-  if (resource) entry.resource = resource;
-  return entry;
+    : pathToFileURL(origin.cwd).href;
+  return { id: 'origin', title: origin.cwd, resource };
 }

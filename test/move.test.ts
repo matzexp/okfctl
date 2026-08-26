@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -263,4 +263,29 @@ test('targeted regeneration creates an index for a directory that lacks one', ()
   const written = regenerateIndexes(loadBundle(root), ['guides']);
   assert.deepEqual(written, ['guides/index.md']);
   assert.match(readFileSync(join(root, 'guides/index.md'), 'utf8'), /onboarding\.md/);
+});
+
+test('a failed move leaves no log entry for the relocation it rolled back', () => {
+  const root = sandbox();
+  const logFile = join(root, 'log.md');
+  const before = readFileSync(logFile, 'utf8');
+  const source = join(root, 'drafts/timeout-mitigation.md');
+  const sourceBefore = readFileSync(source, 'utf8');
+
+  // Index regeneration runs after the log append; a directory where an index
+  // file belongs breaks it deterministically, whatever the uid.
+  const metricsIndex = join(root, 'metrics/index.md');
+  rmSync(metricsIndex, { force: true });
+  mkdirSync(metricsIndex);
+
+  const code = quiet(() => runMove('drafts/timeout-mitigation', 'metrics/timeout-mitigation', {
+    bundle: root,
+    by: BY,
+  }));
+
+  assert.equal(code, 1);
+  assert.equal(readFileSync(logFile, 'utf8'), before, 'the log is byte-identical to before the attempt');
+  assert.equal(existsSync(source), true, 'the concept is back where it started');
+  assert.equal(readFileSync(source, 'utf8'), sourceBefore);
+  assert.equal(existsSync(join(root, 'metrics/timeout-mitigation.md')), false);
 });

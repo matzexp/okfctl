@@ -78,6 +78,49 @@ test("Codex's own stop_hook_active suppresses a repeat block", () => {
   assert.equal(outcome.reason, 'continuation');
 });
 
+test('a Stop-only host still prompts: arming is not required of one that self-reports', () => {
+  isolate();
+  registered();
+
+  // Codex and Copilot register `Stop` alone — no UserPromptSubmit ever arrives,
+  // so the arming marker is never set. Requiring it here left both hosts
+  // permanently disarmed and silently never prompting.
+  const first = decide({ payload: stop('stop-only', { stop_hook_active: false }), every: 1 });
+  assert.equal(first.blocking, true, 'the first turn is held open');
+  assert.equal(first.reason, 'blocked');
+
+  const second = decide({ payload: stop('stop-only', { stop_hook_active: false }), every: 1 });
+  assert.equal(second.blocking, true, 'and so is the next real turn');
+});
+
+test('a Stop-only host reports its own continuation, which is not blocked', () => {
+  isolate();
+  registered();
+  assert.equal(decide({ payload: stop('stop-only-2', { stop_hook_active: false }), every: 1 }).blocking, true);
+  const continuation = decide({ payload: stop('stop-only-2', { stop_hook_active: true }), every: 1 });
+  assert.equal(continuation.blocking, false);
+  assert.equal(continuation.reason, 'continuation');
+});
+
+test('a host that sends no stop_hook_active key at all still needs arming', () => {
+  isolate();
+  registered();
+  // Claude Code documents no continuation flag, so the arming marker is the only
+  // signal available and must still gate the block.
+  const unarmed = decide({ payload: stop('no-key'), every: 1 });
+  assert.equal(unarmed.blocking, false);
+  assert.equal(unarmed.reason, 'continuation');
+});
+
+test('--every counts turns on a Stop-only host too', () => {
+  isolate();
+  registered();
+  const fire = () => decide({ payload: stop('stop-only-3', { stop_hook_active: false }), every: 3 });
+  assert.equal(fire().reason, 'not-due');
+  assert.equal(fire().reason, 'not-due');
+  assert.equal(fire().reason, 'blocked', 'every third turn prompts');
+});
+
 test('the interval decides which turns are held open', () => {
   isolate();
   registered();

@@ -103,11 +103,21 @@ function evaluate(options: HookOptions, now: number): HookOutcome {
 
   if (event !== 'Stop') return { code: 0, blocking: false, message: null, reason: 'ignored' };
 
-  // Codex reports its own continuations. Where that signal exists it is exact,
-  // and it is checked before anything else.
+  // Codex and Copilot report their own continuations. Where that signal exists
+  // it is exact, and it is checked before anything else.
   if (payload.stop_hook_active === true) {
     return { code: 0, blocking: false, message: null, reason: 'continuation' };
   }
+
+  // Whether this host reports its own continuations, read off the payload rather
+  // than off a list of host names. A host that sends the key at all — `false`
+  // included — has answered the question, so the arming marker below is not
+  // needed and must not be required: only `claude-code` installs the
+  // `UserPromptSubmit` hook that sets it, so requiring it unconditionally left
+  // every Stop-only host permanently disarmed and silently never prompting.
+  // Keying off the payload cannot drift out of sync with the install plan the
+  // way a hardcoded host list can.
+  const selfReports = typeof payload.stop_hook_active === 'boolean';
 
   const turns = state.turns + 1;
   const recent = state.blockTimes.filter((time) => now - time < BREAKER_WINDOW_MS);
@@ -128,8 +138,9 @@ function evaluate(options: HookOptions, now: number): HookOutcome {
     };
   }
 
-  // A continuation this hook caused finds the session disarmed.
-  if (!state.armed) {
+  // A continuation this hook caused finds the session disarmed. Only consulted
+  // for hosts that do not report continuations themselves — see `selfReports`.
+  if (!selfReports && !state.armed) {
     writeSession(sessionId, { ...state, turns, blockTimes: recent });
     return { code: 0, blocking: false, message: null, reason: 'continuation' };
   }

@@ -173,26 +173,22 @@ export function runRefine(sources: string[], options: RefineOptions): number {
     return 1;
   }
 
-  // One citation per source, keyed by that source's own trailing id segment so
-  // it reads as a natural footnote label in the body (SPEC §5.1).
-  const newCitations: Citation[] = resolved.map((source) => ({
-    id: source.id.split('/').pop()!,
-    title: conceptTitle(source),
-    resource: source.id,
-  }));
-
   // Extending merges into whatever the entry already cited — a prior citation is
   // never dropped, and a source already cited (by resource, the only globally
-  // unique field) is not cited twice.
-  let citations: Citation[];
-  if (target) {
-    const existing = Array.isArray(target.data.sources)
-      ? (target.data.sources as Citation[])
-      : [];
-    const existingResources = new Set(existing.map((citation) => citation.resource));
-    citations = [...existing, ...newCitations.filter((c) => !existingResources.has(c.resource))];
-  } else {
-    citations = newCitations;
+  // unique field) is not cited twice. Existing ids are left exactly as they are:
+  // the body may already footnote them.
+  const existing = target && Array.isArray(target.data.sources)
+    ? (target.data.sources as Citation[])
+    : [];
+  const existingResources = new Set(existing.map((citation) => citation.resource));
+  const taken = new Set(existing.map((citation) => citation.id).filter(Boolean));
+
+  const citations: Citation[] = [...existing];
+  for (const source of resolved) {
+    if (existingResources.has(source.id)) continue;
+    const id = uniqueCitationId(source.id, taken);
+    taken.add(id);
+    citations.push({ id, title: conceptTitle(source), resource: source.id });
   }
 
   const description = options.description?.trim() || undefined;
@@ -282,7 +278,14 @@ export function runRefine(sources: string[], options: RefineOptions): number {
       }
     }
 
-    if (!options.noLog) appendLogEntry(logFile, entry, isoDay());
+    if (!options.noLog) {
+      // Staged like every other write. An unstaged log append survives rollback
+      // and leaves the bundle claiming a refine that was undone — which makes
+      // the "restored to its previous state" message below a false statement.
+      if (existsSync(logFile)) restore.push({ file: logFile, contents: readFileSync(logFile, 'utf8') });
+      else created.push(logFile);
+      appendLogEntry(logFile, entry, isoDay());
+    }
 
     if (consume) {
       const dirs = [...new Set([dirname(id), ...resolved.map((source) => dirname(source.id))])]
@@ -314,6 +317,27 @@ function rollback(created: string[], restore: { file: string; contents: string }
     } catch {
       // Same.
     }
+  }
+}
+
+/**
+ * A footnote label for a source (SPEC §5.1), keyed by its own trailing id segment
+ * so it reads naturally in the body. Two sources can share a basename —
+ * `dumps/gateway-timeout` and `incidents/gateway-timeout` — and an id used twice
+ * makes the join ambiguous, which `okfctl refs` reports as a defect in a file
+ * `okfctl` itself just wrote. So the label grows leftward through the path until
+ * it is unique, and only then falls back to a numeric suffix.
+ */
+function uniqueCitationId(sourceId: string, taken: Set<string>): string {
+  const segments = sourceId.split('/');
+  for (let from = segments.length - 1; from >= 0; from--) {
+    const candidate = segments.slice(from).join('-');
+    if (!taken.has(candidate)) return candidate;
+  }
+  const base = segments.join('-');
+  for (let suffix = 2; ; suffix++) {
+    const candidate = `${base}-${suffix}`;
+    if (!taken.has(candidate)) return candidate;
   }
 }
 

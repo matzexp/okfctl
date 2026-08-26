@@ -51,7 +51,7 @@ program
   .option('--format <fmt>', 'table (default), json, or yaml')
   .option('--json', 'shorthand for --format json')
   .action(function (this: Command, options) {
-    exit(runCheck({ bundle: bundleDir(this), ...options }));
+    exit(runCheck({ bundle: bundleDir(this), dumpsDir: dumpsDir(this), ...options }));
   });
 
 program

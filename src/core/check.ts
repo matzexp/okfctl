@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Bundle } from './bundle.ts';
-import type { Concept } from './concept.ts';
+import { frontmatterKeys, type Concept } from './concept.ts';
 import { STATUSES, isDrifted, isStale, verifiedEvents } from './lifecycle.ts';
 import { checkRefs, type RefsContext } from './refs.ts';
+import { DEFAULT_DUMPS_DIR, inDumps } from './dumps.ts';
 
 export type Level = 'error' | 'warn';
 
@@ -16,13 +17,18 @@ export interface Diagnostic {
   message: string;
 }
 
+export interface CheckContext extends RefsContext {
+  /** Resolved dumps area, so the advisory tier can leave the holding area alone. */
+  dumpsDir?: string;
+}
+
 /**
  * SPEC §11 defines conformance as exactly three rules and explicitly forbids
  * rejecting a bundle for unknown types, unknown keys, broken links, or a
  * missing index.md. Everything beyond those three rules is therefore a
  * warning, never an error.
  */
-export function checkConcept(concept: Concept, context: RefsContext = {}): Diagnostic[] {
+export function checkConcept(concept: Concept, context: CheckContext = {}): Diagnostic[] {
   const found: Diagnostic[] = [];
   const where = `${concept.id}.md`;
   const error = (rule: string, message: string) =>
@@ -48,7 +54,14 @@ export function checkConcept(concept: Concept, context: RefsContext = {}): Diagn
 
   // --- advisory tier -------------------------------------------------------
 
-  if (typeof concept.data.description !== 'string' || !concept.data.description.trim()) {
+  // Not asked of the dumps area. `capture` deliberately takes a title and a body
+  // and nothing else — placement, type and shape are all still undecided there,
+  // and the title is the one-line summary until `refine` assigns a real one. So
+  // warning here flagged every capture the moment it was written, which is noise
+  // the advisory tier cannot afford: a tier that always fires is a tier nobody
+  // reads. `refine` is where a description becomes due, and it is required there.
+  const holding = inDumps(concept.id, context.dumpsDir ?? DEFAULT_DUMPS_DIR);
+  if (!holding && (typeof concept.data.description !== 'string' || !concept.data.description.trim())) {
     warn('description-missing', '`description` is recommended; index.md entries use it (SPEC §8)');
   }
 
@@ -111,7 +124,16 @@ export function checkReserved(bundle: Bundle): Diagnostic[] {
       });
       continue;
     }
-    const keys = [...raw.matchAll(/^([A-Za-z_][\w-]*):/gm)].map((match) => match[1]);
+    const keys = frontmatterKeys(raw);
+    if (keys === null) {
+      found.push({
+        level: 'error',
+        where: rel,
+        rule: 'index-frontmatter',
+        message: 'root index.md opens a frontmatter block that is not valid YAML (SPEC §12)',
+      });
+      continue;
+    }
     const extra = keys.filter((key) => key !== 'okf_version');
     if (extra.length > 0) {
       found.push({
@@ -142,9 +164,10 @@ export function checkReserved(bundle: Bundle): Diagnostic[] {
   return found;
 }
 
-export function checkBundle(bundle: Bundle): Diagnostic[] {
+export function checkBundle(bundle: Bundle, context: CheckContext = {}): Diagnostic[] {
   return [
-    ...bundle.concepts.flatMap((concept) => checkConcept(concept, { root: bundle.root })),
+    ...bundle.concepts.flatMap((concept) =>
+      checkConcept(concept, { ...context, root: bundle.root })),
     ...checkReserved(bundle),
   ];
 }

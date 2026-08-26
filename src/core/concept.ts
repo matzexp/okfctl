@@ -19,6 +19,33 @@ export interface Concept {
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n([\s\S]*))?$/;
 
+/**
+ * The raw YAML between the delimiters, or null when the document has no
+ * frontmatter block. Callers that need to inspect keys must go through this
+ * rather than scanning the whole file: a body line like `Note: ...` is prose,
+ * not a key, and reading it as one turns ordinary writing into a defect report.
+ */
+export function frontmatterText(raw: string): string | null {
+  const match = FRONTMATTER.exec(raw);
+  return match ? match[1] : null;
+}
+
+/**
+ * Top-level frontmatter keys, in document order. `[]` when the document has no
+ * frontmatter block at all; `null` when it opens one that does not parse, which
+ * a caller checking a reserved file has to report rather than wave through.
+ */
+export function frontmatterKeys(raw: string): string[] | null {
+  const yamlText = frontmatterText(raw);
+  if (yamlText === null) return [];
+  const doc = parseDocument(yamlText);
+  if (doc.errors.length > 0) return null;
+  if (!isMap(doc.contents)) return [];
+  return doc.contents.items
+    .map((item) => (item.key as { value?: unknown })?.value)
+    .filter((key): key is string => typeof key === 'string');
+}
+
 export function parseConcept(file: string, id: string, raw: string): Concept {
   const match = FRONTMATTER.exec(raw);
   if (!match) {
