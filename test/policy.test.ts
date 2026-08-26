@@ -3,12 +3,34 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { runInit } from '../src/commands/init.ts';
 import { loadBundle } from '../src/core/bundle.ts';
 import {
   CONTENT_POLICY_FILE, FIELD_POLICY_FILE, POLICY_DIR, SOURCE_POLICY_FILE,
   contentPolicyTemplate, fieldPolicyTemplate, sourcePolicyTemplate,
 } from '../src/core/policy.ts';
+
+import { runCheck, type CheckOptions } from '../src/commands/check.ts';
+
+const FIXTURE_BUNDLE = fileURLToPath(new URL('./fixtures/bundle', import.meta.url));
+
+/** Run `check` in json mode and hand back its diagnostic counts. */
+function capturedCheck(options: CheckOptions): { errors: number; warnings: number } {
+  const log = console.log;
+  let text = '';
+  console.log = (...args: unknown[]) => { text += `${args.join(' ')}\n`; };
+  try {
+    runCheck({ ...options, json: true });
+  } finally {
+    console.log = log;
+  }
+  const parsed = JSON.parse(text) as { diagnostics: { level: string }[] };
+  return {
+    errors: parsed.diagnostics.filter((entry) => entry.level === 'error').length,
+    warnings: parsed.diagnostics.filter((entry) => entry.level === 'warn').length,
+  };
+}
 
 function isolate(): string {
   const home = mkdtempSync(join(tmpdir(), 'okfctl-policy-home-'));
@@ -106,4 +128,20 @@ test('an absent policy directory is not an error', () => {
 
   const bundle = loadBundle(root);
   assert.equal(bundle.concepts.length, 0);
+});
+
+// --- check --rule / --ignore --------------------------------------------------
+
+test('--ignore suppresses a warning rule but never an error', () => {
+  const plain = capturedCheck({ bundle: FIXTURE_BUNDLE });
+  const ignored = capturedCheck({ bundle: FIXTURE_BUNDLE, ignore: ['drifted', 'stale'] });
+
+  assert.ok(ignored.warnings < plain.warnings, 'the named warnings are gone');
+  assert.equal(ignored.errors, plain.errors, 'errors are untouched');
+});
+
+test('--rule reports only the named warning rules, errors regardless', () => {
+  const only = capturedCheck({ bundle: FIXTURE_BUNDLE, rule: ['nothing-matches-this'] });
+  assert.equal(only.warnings, 0);
+  assert.ok(only.errors > 0, 'conformance is not something a bundle may switch off');
 });

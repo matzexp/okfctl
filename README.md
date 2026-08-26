@@ -141,29 +141,38 @@ Every command also takes `--dumps-dir <dir>` and `--drafts-dir <dir>` if `dumps/
 | `okfctl init [dir]` | Scaffold a bundle, `--register` it as this machine's knowledge base, `--agent` to wire a coding agent to it. |
 | `okfctl update [dir]` | Refresh exactly the hosts already installed for a bundle — current skills, commands, and hook config — without naming `--agent` again. Preserves each host's installed `--capture-every` interval unless overridden. |
 | `okfctl capture` | Low-ceremony capture into the dumps area: title, actor and a body, placement deferred. |
-| `okfctl refine <source...>` | Turn one or more dumps into a typed, titled entry in the drafts area, citing what it drew from. `--extend <id>` updates an existing drafts-area entry in place instead. |
+| `okfctl refine <source...>` | Turn one or more dumps into a typed, titled entry in the drafts area, citing what it drew from. `--extend <id>` updates an existing drafts-area entry in place instead; `--list` shows the unrefined inbox and writes nothing. |
 | `okfctl move <from> <to>` | Relocate a concept, carrying its inbound links, indexes and log with it. Not a promotion. |
-| `okfctl check` | Two-tier conformance + lint. Errors gate CI; warnings inform. |
-| `okfctl status` | Corpus health: trust tiers, stale, draft, drifted, orphans. |
+| `okfctl check` | Two-tier conformance + lint. Errors gate CI; warnings inform. `--rule`/`--ignore` filter the advisory tier by rule id; errors are never filtered. |
+| `okfctl status` | Corpus health: trust tiers, stale, draft, drifted, orphans, and the two inboxes. |
 | `okfctl new <path>` | Ingest: create a concept that conforms on the first write. |
-| `okfctl review <concept>` | Record what a review found: still accurate, or no longer accurate. |
-| `okfctl promote <concept>` | The draft→stable transition: record verification, flip status, set freshness, log it. |
-| `okfctl deprecate <concept>` | The stable→deprecated transition, logged the same way. |
-| `okfctl index` | Regenerate `index.md` from frontmatter (§8). `--check` for CI. |
+| `okfctl review <concepts...>` | Record what a review found: still accurate, or no longer accurate. Takes a batch. |
+| `okfctl promote <concepts...>` | The draft→stable transition: record verification, flip status, set freshness, log it. Takes a batch. |
+| `okfctl deprecate <concepts...>` | The stable→deprecated transition, logged the same way. Takes a batch. |
+| `okfctl index` | Regenerate `index.md` from frontmatter (§8). Each file is rewritten whole, so an `index.md` is derived data and not a place for hand-written prose. `--check` for CI. |
 | `okfctl refs` | Reference integrity: footnote ↔ `sources[].id`, and internal links. `--strict` for CI. |
 | `okfctl catalog` | The whole bundle as one document, grouped by type. Prints by default. |
-| `okfctl search <query>` | Ranked full-text search over `title`, `description`, `tags` and body, boosted by trust tier. Each result names its area (dumps/drafts/corpus) and trust tier. Indexed in memory per run, never persisted. `--limit` to widen. |
+| `okfctl search <query>` | Ranked full-text search over `title`, `description`, `tags` and body, boosted by trust tier. Each result names its area (dumps/drafts/corpus) and trust tier. `--snippet` for matching context, `--area`/`--tier`/`--type`/`--tag` to narrow, `--limit` to widen. Indexed in memory per run, never persisted. |
+| `okfctl related <concept>` | The neighbourhood of one concept: links out, links in, shared tags, similar text — ranked by how deliberate the relation is. Read-only. |
 
 Common invocations:
 
 ```bash
 okfctl check --strict                 # treat warnings as errors (opt-in only)
+okfctl check --ignore stale,drifted   # quiet a warning rule; errors are never filtered
 okfctl status --stale --drifted       # filter to what needs attention
+okfctl status --orphan                # placed concepts nothing links to
 okfctl status --json                  # machine-readable (shorthand for --format json)
 okfctl status --format yaml           # same data, yaml
+okfctl search "gateway timeout" --snippet          # show why each result matched
+okfctl search "timeout" --area corpus --tier human-reviewed   # only settled knowledge
+okfctl search "gateway" --type Decision --tag networking
+okfctl related decisions/gateway-api  # what else should I be reading?
 okfctl search "gateway timeout" --format json | jq '.results[] | select(.tier == "human-reviewed")'
 okfctl new decisions/x --type Decision --dry-run    # preview the frontmatter
+okfctl refine --list                  # what is sitting unrefined
 okfctl review <id> --confirm  --by human:me --stale-in 90d
+okfctl review <a> <b> <c> --confirm --by human:me --stale-in 90d   # a batch
 okfctl review <id> --outdated --by human:me --reason "FY26 restatement"
 okfctl deprecate <id> --by human:me --reason "superseded by /metrics/revenue-v2"
 okfctl index --check                  # CI: fail when index.md has drifted
@@ -299,6 +308,14 @@ so installing into a bundle adds no concepts and no conformance errors.
 cannot summarize a session. One that tried would write garbage under an agent's provenance,
 which is a false claim in the sense §7 cares about. It asks; the agent decides and writes.
 
+**Continuation guards differ per host, and the hook reads that off the payload.**
+Codex and Copilot report their own continuations through `stop_hook_active`; Claude Code
+documents no such flag, so a second `UserPromptSubmit` hook arms the session instead and
+the `Stop` handler blocks only when armed. The handler decides which applies from the
+payload — a host that sends `stop_hook_active` at all, `false` included, has answered the
+question and is never asked to arm. Requiring the marker of every host is what silently
+disabled prompting on the two that never send it.
+
 **It fires on `Stop`, not `SessionEnd`.** On both hosts, session-end hook output is
 discarded and cannot reach the model, which makes it useless for prompting. `Stop` fires at
 turn completion and its output is injected into the model's context.
@@ -384,6 +401,13 @@ read time.
 **Drifted** (ours): the latest `verified.at` is older than `generated.at`. The content
 changed after someone last confirmed it, so the trust tier is nominally intact but no longer
 earned.
+
+**Orphan** (ours): no concept in the bundle links to it. A document nothing points at is
+reachable by search but sits outside the structure a reader navigates by. It is *counted*
+in `status`, not flagged into the attention list — an orphan is not rotting, and mixing it
+with what is would bury the difference. `okfctl status --orphan` lists them, and
+`okfctl related <concept>` is how you find where one should attach. The dumps and drafts
+areas are exempt: an entry nobody has placed yet is not expected to have inbound links.
 
 ## Conformance is two-tier, by design
 
@@ -473,10 +497,11 @@ Two things worth knowing before you send a change:
 
 ## Status
 
-Proof of concept, pre-1.0, and moving. `check`, `status`, `new`, `review`, `promote`,
-`deprecate`, `index`, and `refs` are the surface that exists today; all of them work, and
-none of them are frozen. Flags and output formats may change without ceremony until the
-model settles. Targets OKF **v0.2**.
+Proof of concept, pre-1.0, and moving. The surface that exists today is `init`, `update`,
+`capture`, `refine`, `move`, `check`, `status`, `new`, `review`, `promote`, `deprecate`,
+`index`, `refs`, `catalog`, `search`, and `related`; all of them work, and none of them
+are frozen. Flags and output formats may change without ceremony until the model settles.
+Targets OKF **v0.2**.
 
 Built with [Claude Code](https://claude.com/claude-code) — the commits, the tests, and the
 design notes in `docs/` are agent-written and human-reviewed.

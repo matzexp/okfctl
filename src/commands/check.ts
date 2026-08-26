@@ -11,6 +11,29 @@ export interface CheckOptions {
   format?: string;
   json?: boolean;
   quiet?: boolean;
+  /** Report only these rules. */
+  rule?: string[];
+  /** Report everything except these rules. */
+  ignore?: string[];
+}
+
+/**
+ * Filter by rule id. Suppression is advisory-tier only: SPEC §11's three
+ * conformance rules are what "conformant" means, and a bundle that silences one
+ * is not making a claim anyone else can read. Warnings are ours, so they are
+ * ours to switch off — that is what the stable `rule` id on every diagnostic has
+ * always been for.
+ */
+function filtered(diagnostics: Diagnostic[], options: CheckOptions): Diagnostic[] {
+  const only = new Set(options.rule ?? []);
+  const ignored = new Set(options.ignore ?? []);
+  if (only.size === 0 && ignored.size === 0) return diagnostics;
+
+  return diagnostics.filter((entry) => {
+    if (entry.level === 'error') return true;
+    if (only.size > 0 && !only.has(entry.rule)) return false;
+    return !ignored.has(entry.rule);
+  });
 }
 
 export function runCheck(options: CheckOptions): number {
@@ -24,7 +47,7 @@ export function runCheck(options: CheckOptions): number {
     return 1;
   }
 
-  const diagnostics = checkBundle(bundle, { dumpsDir });
+  const diagnostics = filtered(checkBundle(bundle, { dumpsDir }), options);
   const errors = countBy(diagnostics, 'error');
   const warnings = countBy(diagnostics, 'warn');
 

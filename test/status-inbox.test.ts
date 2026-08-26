@@ -1,12 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runStatus } from '../src/commands/status.ts';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/bundle', import.meta.url));
+
+/** Run a command in `--json` mode and hand back the parsed payload. */
+function capturedJson(run: () => number): { code: number; out: any } {
+  const log = console.log;
+  let text = '';
+  console.log = (...args: unknown[]) => { text += `${args.join(' ')}\n`; };
+  try {
+    const code = run();
+    return { code, out: JSON.parse(text) };
+  } finally {
+    console.log = log;
+  }
+}
 
 function sandbox(): string {
   const dir = mkdtempSync(join(tmpdir(), 'okfctl-inbox-'));
@@ -153,4 +166,47 @@ test('the default attention list keeps its columns', () => {
   const { out } = captured(() => runStatus({ bundle: root }));
   assert.match(out, /ID\s+STATUS\s+TRUST\s+FLAGS/);
   assert.doesNotMatch(out, /CAPTURED/, 'the title column is added only where ids are generated');
+});
+
+// --- orphans ----------------------------------------------------------------
+
+test('a placed concept nothing links to is an orphan; a linked one is not', () => {
+  const root = mkdtempSync(join(tmpdir(), 'okf-orphan-'));
+  writeFileSync(join(root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Orphans\n');
+  const concept = (id: string, body: string) =>
+    writeFileSync(join(root, `${id}.md`), ['---', 'type: Note', `title: ${id}`, '---', '', body].join('\n'));
+
+  concept('linker', 'See [the target](/target.md).');
+  concept('target', 'Linked from elsewhere.');
+  concept('lonely', 'Nothing points here.');
+
+  const { code, out } = capturedJson(() => runStatus({ bundle: root, json: true }));
+  assert.equal(code, 0);
+  const byId = new Map(out.concepts.map((row: any) => [row.id, row]));
+  assert.equal(byId.get('target').orphan, false);
+  assert.equal(byId.get('lonely').orphan, true);
+  assert.equal(byId.get('linker').orphan, true, 'linking out does not make you reachable');
+});
+
+test('the holding areas are exempt: an unplaced entry has no inbound links yet', () => {
+  const root = mkdtempSync(join(tmpdir(), 'okf-orphan-areas-'));
+  writeFileSync(join(root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Areas\n');
+  mkdirSync(join(root, 'dumps'));
+  mkdirSync(join(root, 'drafts'));
+  for (const id of ['dumps/raw', 'drafts/refined']) {
+    writeFileSync(join(root, `${id}.md`), ['---', 'type: Note', 'title: t', '---', '', 'x'].join('\n'));
+  }
+
+  const { out } = capturedJson(() => runStatus({ bundle: root, json: true }));
+  assert.equal(out.concepts.every((row: any) => row.orphan === false), true);
+});
+
+test('--orphan filters to exactly those concepts', () => {
+  const root = mkdtempSync(join(tmpdir(), 'okf-orphan-filter-'));
+  writeFileSync(join(root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Filter\n');
+  writeFileSync(join(root, 'a.md'), '---\ntype: Note\ntitle: a\n---\n\nSee [b](/b.md).');
+  writeFileSync(join(root, 'b.md'), '---\ntype: Note\ntitle: b\n---\n\nEnd.');
+
+  const { out } = capturedJson(() => runStatus({ bundle: root, orphan: true, json: true }));
+  assert.deepEqual(out.concepts.map((row: any) => row.id), ['a']);
 });

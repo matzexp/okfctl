@@ -3,6 +3,7 @@ import { conceptTitle } from '../core/concept.ts';
 import { inDrafts, resolveDraftsDir } from '../core/drafts.ts';
 import { inDumps, resolveDumpsDir } from '../core/dumps.ts';
 import { generatedAt, health, type Health, type Status, type TrustTier } from '../core/lifecycle.ts';
+import { readLinkSpans } from '../core/refs.ts';
 import { renderOutput, resolveFormat } from '../core/render.ts';
 import { bold, cyan, dim, green, red, table, yellow } from '../core/term.ts';
 
@@ -16,6 +17,7 @@ export interface StatusOptions {
   unverified?: boolean;
   dumps?: boolean;
   drafts?: boolean;
+  orphan?: boolean;
   all?: boolean;
   format?: string;
   json?: boolean;
@@ -32,6 +34,8 @@ interface Row extends Health {
   inDrafts: boolean;
   /** `generated.at`, used to age either inbox. */
   captured: string | null;
+  /** Nothing in the bundle links here: reachable only by search (ours, not a spec term). */
+  orphan: boolean;
 }
 
 export function runStatus(options: StatusOptions): number {
@@ -46,6 +50,17 @@ export function runStatus(options: StatusOptions): number {
   } catch (error) {
     console.error(red((error as Error).message));
     return 1;
+  }
+
+  // Every concept some other concept links to. A document nothing points at is
+  // reachable only by search — findable, but outside the structure a reader
+  // navigates by. Not a spec signal; the holding areas are exempt, since an
+  // unplaced entry is expected to have no inbound links yet.
+  const linked = new Set<string>();
+  for (const concept of bundle.concepts) {
+    for (const span of readLinkSpans(concept, { root: bundle.root })) {
+      if (span.resolvesTo) linked.add(span.resolvesTo.replace(/\.md$/, ''));
+    }
   }
 
   const rows: Row[] = bundle.concepts.map((concept) => {
@@ -65,6 +80,9 @@ export function runStatus(options: StatusOptions): number {
       inDumps: inDumps(concept.id, dumpsDir),
       inDrafts: inDrafts(concept.id, draftsDir),
       captured: at ? at.toISOString() : null,
+      orphan: !linked.has(concept.id)
+        && !inDumps(concept.id, dumpsDir)
+        && !inDrafts(concept.id, draftsDir),
     };
   });
 
@@ -119,7 +137,7 @@ export function runStatus(options: StatusOptions): number {
 function hasFilter(options: StatusOptions): boolean {
   return Boolean(
     options.stale || options.drifted || options.draft || options.unverified ||
-    options.dumps || options.drafts,
+    options.dumps || options.drafts || options.orphan,
   );
 }
 
@@ -131,7 +149,8 @@ function applyFilters(rows: Row[], options: StatusOptions): Row[] {
     (options.draft === true && row.status === 'draft') ||
     (options.unverified === true && row.tier === 'unverified') ||
     (options.dumps === true && row.inDumps) ||
-    (options.drafts === true && row.inDrafts),
+    (options.drafts === true && row.inDrafts) ||
+    (options.orphan === true && row.orphan),
   );
 }
 
@@ -173,12 +192,21 @@ function printSummary(rows: Row[]): void {
     .join('   ');
   const stale = rows.filter((row) => row.stale).length;
   const drifted = rows.filter((row) => row.drifted).length;
+  // Counted, not flagged. An orphan is not rotting, so putting it in the
+  // attention list would bury what is — the same reason the inboxes sit apart.
+  // `--orphan` lists them when someone wants to work on the link structure.
+  const orphans = rows.filter((row) => row.orphan).length;
+  const corpus = rows.filter((row) => !row.inDumps && !row.inDrafts).length;
 
-  console.log(table([
+  const summary: [string, string][] = [
     [dim('Trust'), trust],
     [dim('Lifecycle'), lifecycle],
     [dim('Freshness'), `${stale > 0 ? red(`stale ${stale}`) : `stale ${stale}`}   ${drifted > 0 ? yellow(`drifted ${drifted}`) : `drifted ${drifted}`}`],
-  ]));
+  ];
+  if (corpus > 0) {
+    summary.push([dim('Reach'), `${orphans > 0 ? yellow(`orphans ${orphans}`) : `orphans ${orphans}`} ${dim(`of ${corpus} placed`)}`]);
+  }
+  console.log(table(summary));
 }
 
 /**

@@ -19,6 +19,7 @@ import { runRelated, DEFAULT_LIMIT as RELATED_LIMIT } from './commands/related.t
 import { DEFAULT_DRAFTS_DIR } from './core/drafts.ts';
 import { DEFAULT_DUMPS_DIR } from './core/dumps.ts';
 import { requireBundleDir, resolveBundleDir } from './core/userconfig.ts';
+import { runBatch } from './core/batch.ts';
 import { red } from './core/term.ts';
 
 const program = new Command();
@@ -38,8 +39,13 @@ const list = (value: string): string[] =>
 const bundleDir = (command: Command): string =>
   (command.optsWithGlobals().bundle as string | undefined) ?? resolveBundleDir();
 
-/** For verbs that write: no silent fallback to the working directory. */
-const writeBundleDir = (command: Command): string =>
+/**
+ * For commands that must act on a real bundle: no silent fallback to the working
+ * directory. Every writing verb needs this, and so does `search`, which would
+ * otherwise answer "the bundle knows nothing" from whatever directory you happen
+ * to be standing in.
+ */
+const requiredBundleDir = (command: Command): string =>
   (command.optsWithGlobals().bundle as string | undefined) ?? requireBundleDir();
 
 const dumpsDir = (command: Command): string =>
@@ -53,6 +59,8 @@ program
   .description('conformance errors (SPEC 11) and advisory lint warnings')
   .option('--strict', 'exit non-zero on warnings too (opt-in; not spec conformance)')
   .option('--quiet', 'show errors only')
+  .option('--rule <list>', 'report only these warning rules; errors are never filtered', list)
+  .option('--ignore <list>', 'suppress these warning rules; errors are never filtered', list)
   .option('--format <fmt>', 'table (default), json, or yaml')
   .option('--json', 'shorthand for --format json')
   .action(function (this: Command, options) {
@@ -68,6 +76,7 @@ program
   .option('--unverified', 'only concepts with no verified entry')
   .option('--dumps', 'only the dumps inbox (raw captures)')
   .option('--drafts', 'only the drafts inbox (refined entries)')
+  .option('--orphan', 'only placed concepts nothing in the bundle links to')
   .option('--all', 'include dumps- and drafts-area concepts in the attention list')
   .option('--format <fmt>', 'table (default), json, or yaml')
   .option('--json', 'shorthand for --format json')
@@ -144,7 +153,7 @@ program
   .option('-n, --dry-run', 'show what would be written without writing it')
   .action(function (this: Command, options) {
     exit(runCapture({
-      bundle: writeBundleDir(this),
+      bundle: requiredBundleDir(this),
       dumpsDir: dumpsDir(this),
       ...options,
       noOrigin: options.origin === false,
@@ -153,11 +162,14 @@ program
   });
 
 program
-  .command('refine <sources...>')
+  .command('refine [sources...]')
   .description('turn one or more dumps into a typed, titled entry in the drafts area')
   .option('--type <type>', 'concept type; required for a fresh entry, defaults to the existing type with --extend')
   .option('--title <text>', 'title; required for a fresh entry, defaults to the existing title with --extend')
-  .requiredOption('--by <actor>', 'refining actor (SPEC 7); never guessed')
+  // Not a requiredOption: `--list` reads the inbox and writes nothing, so it has
+  // no actor to name. The write path validates it and refuses without one.
+  .option('--by <actor>', 'refining actor (SPEC 7); never guessed')
+  .option('--list', 'list the unrefined dumps inbox and exit; writes nothing')
   .option('--description <text>', 'one-line summary')
   .option('--tags <list>', 'comma-separated tags', list)
   .option('--body <text>', 'the body, written verbatim (the full resulting file, when --extend is used)')
@@ -170,7 +182,7 @@ program
   .option('-n, --dry-run', 'show what would be written (and consumed) without writing it')
   .action(function (this: Command, sources: string[], options) {
     exit(runRefine(sources, {
-      bundle: writeBundleDir(this),
+      bundle: requiredBundleDir(this),
       draftsDir: draftsDir(this),
       dumpsDir: dumpsDir(this),
       ...options,
@@ -188,7 +200,7 @@ program
   .option('-n, --dry-run', 'show the move, the link rewrites and the indexes without writing')
   .action(function (this: Command, from: string, to: string, options) {
     exit(runMove(from, to, {
-      bundle: writeBundleDir(this),
+      bundle: requiredBundleDir(this),
       ...options,
       noLog: options.log === false,
       noIndex: options.index === false,
@@ -196,8 +208,8 @@ program
   });
 
 program
-  .command('review <concept>')
-  .description('record a review outcome: still accurate, or no longer accurate')
+  .command('review <concepts...>')
+  .description('record a review outcome on one or more concepts: still accurate, or no longer accurate')
   .option('--confirm', 'still accurate: record a verification')
   .option('--outdated', 'no longer accurate: mark stale as of today, verify nothing')
   .option('--by <actor>', 'reviewing actor (SPEC 7); required with --confirm')
@@ -206,33 +218,39 @@ program
   .option('--stale-in <duration>', 'with --confirm, set the next horizon relative to today')
   .option('--no-log', 'skip the log.md entry')
   .option('-n, --dry-run', 'show the outcome without writing')
-  .action(function (this: Command, concept: string, options) {
-    exit(runReview(concept, { bundle: bundleDir(this), ...options, noLog: options.log === false }));
+  .action(function (this: Command, concepts: string[], options) {
+    const bundle = bundleDir(this);
+    exit(runBatch(concepts, (concept) =>
+      runReview(concept, { bundle, ...options, noLog: options.log === false })));
   });
 
 program
-  .command('promote <concept>')
-  .description('record verification and move a concept to status: stable')
+  .command('promote <concepts...>')
+  .description('record verification and move one or more concepts to status: stable')
   .requiredOption('--by <actor>', 'verifying actor, e.g. human:matze (SPEC 7)')
   .option('--stale-after <date>', 'set stale_after to an absolute YYYY-MM-DD')
   .option('--stale-in <duration>', 'set stale_after relative to today, e.g. 90d, 6m')
   .option('--no-log', 'skip the log.md entry')
   .option('--force', 'promote despite conformance errors')
   .option('-n, --dry-run', 'show the transition without writing')
-  .action(function (this: Command, concept: string, options) {
-    exit(runPromote(concept, { bundle: bundleDir(this), ...options, noLog: options.log === false }));
+  .action(function (this: Command, concepts: string[], options) {
+    const bundle = bundleDir(this);
+    exit(runBatch(concepts, (concept) =>
+      runPromote(concept, { bundle, ...options, noLog: options.log === false })));
   });
 
 program
-  .command('deprecate <concept>')
-  .description('move a concept to status: deprecated')
+  .command('deprecate <concepts...>')
+  .description('move one or more concepts to status: deprecated')
   .option('--by <actor>', 'actor performing the deprecation (SPEC 7)')
   .option('--reason <text>', 'recorded in the log entry')
   .option('--no-log', 'skip the log.md entry')
   .option('--force', 're-deprecate an already-deprecated concept')
   .option('-n, --dry-run', 'show the transition without writing')
-  .action(function (this: Command, concept: string, options) {
-    exit(runDeprecate(concept, { bundle: bundleDir(this), ...options, noLog: options.log === false }));
+  .action(function (this: Command, concepts: string[], options) {
+    const bundle = bundleDir(this);
+    exit(runBatch(concepts, (concept) =>
+      runDeprecate(concept, { bundle, ...options, noLog: options.log === false })));
   });
 
 program
@@ -249,7 +267,7 @@ program
 
 program
   .command('index')
-  .description('regenerate index.md from frontmatter (SPEC 8)')
+  .description('regenerate index.md from frontmatter (SPEC 8); overwrites each index.md wholly, so hand-written prose there does not survive')
   .option('--check', 'exit non-zero when an index.md has drifted')
   .option('--root-only', 'only regenerate the bundle-root index.md')
   .option('--include-deprecated', 'list deprecated concepts too')
@@ -270,11 +288,10 @@ program
   .option('--format <fmt>', 'table (default), json, or yaml')
   .option('--json', 'shorthand for --format json')
   .action(function (this: Command, query: string, options) {
-    // Unlike the other read commands this one requires a real bundle rather than
-    // falling back to the cwd: searching whatever directory you happen to be in
-    // returns a confident empty result, which reads as "the bundle knows nothing".
+    // Unlike the other read commands this one requires a real bundle: a
+    // confident empty result reads as "the bundle knows nothing".
     exit(runSearch({
-      bundle: writeBundleDir(this),
+      bundle: requiredBundleDir(this),
       dumpsDir: dumpsDir(this),
       draftsDir: draftsDir(this),
       query,

@@ -3,9 +3,9 @@ import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { findConcept, loadBundle } from '../core/bundle.ts';
 import { conceptTitle, createConcept, serializeConcept, setField, type Concept } from '../core/concept.ts';
 import { resolveDraftsDir, inDrafts } from '../core/drafts.ts';
-import { resolveDumpsDir, inDumps } from '../core/dumps.ts';
+import { resolveDumpsDir, inDumps, dumpConcepts } from '../core/dumps.ts';
 import { slugify } from './capture.ts';
-import { ACTOR_FORMS, isValidActor, isoDay } from '../core/lifecycle.ts';
+import { ACTOR_FORMS, generatedAt, isValidActor, isoDay } from '../core/lifecycle.ts';
 import { appendLogEntry, displayPath, nearestLog } from '../core/log.ts';
 import { regenerateIndexes } from './index-gen.ts';
 import { bold, cyan, dim, green, red } from '../core/term.ts';
@@ -25,6 +25,7 @@ export interface RefineOptions {
   body?: string;
   stdin?: boolean;
   consume?: boolean;
+  list?: boolean;
   dryRun?: boolean;
   noLog?: boolean;
 }
@@ -49,11 +50,6 @@ interface Citation {
 export function runRefine(sources: string[], options: RefineOptions): number {
   const bundle = loadBundle(options.bundle);
 
-  if (sources.length === 0) {
-    console.error(red('at least one source concept is required'));
-    return 1;
-  }
-
   let draftsDir: string;
   let dumpsDir: string;
   try {
@@ -61,6 +57,13 @@ export function runRefine(sources: string[], options: RefineOptions): number {
     dumpsDir = resolveDumpsDir(bundle.root, options.dumpsDir);
   } catch (error) {
     console.error(red((error as Error).message));
+    return 1;
+  }
+
+  if (options.list) return listInbox(bundle, dumpsDir);
+
+  if (sources.length === 0) {
+    console.error(red('at least one source concept is required'));
     return 1;
   }
 
@@ -318,6 +321,29 @@ function rollback(created: string[], restore: { file: string; contents: string }
       // Same.
     }
   }
+}
+
+/**
+ * The unrefined inbox, listed from inside the verb that empties it. `status
+ * --dumps` reports the same thing, but the question "what is there to refine"
+ * arises while reaching for `refine`, and sending the caller to another command
+ * to answer it is friction for no gain.
+ */
+function listInbox(bundle: ReturnType<typeof loadBundle>, dumpsDir: string): number {
+  const dumps = dumpConcepts(bundle, dumpsDir);
+  if (dumps.length === 0) {
+    console.log(dim(`nothing unrefined in ${dumpsDir}/`));
+    return 0;
+  }
+
+  console.log(bold(`${dumps.length} unrefined in ${dumpsDir}/`));
+  const width = Math.max(...dumps.map((dump) => dump.id.length));
+  for (const dump of dumps) {
+    const at = generatedAt(dump.data);
+    const when = at ? isoDay(at) : dim('undated');
+    console.log(`  ${cyan(dump.id.padEnd(width))}  ${conceptTitle(dump)}  ${dim(when)}`);
+  }
+  return 0;
 }
 
 /**

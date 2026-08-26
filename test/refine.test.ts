@@ -464,3 +464,39 @@ test('refine writes a bundle that its own refs check finds clean', () => {
     .filter((entry) => entry.rule === 'source-id-duplicate');
   assert.deepEqual(duplicates, [], 'the writer does not emit what the checker flags');
 });
+
+test('--list reports the unrefined inbox and writes nothing', () => {
+  const root = sandbox();
+  const before = readFileSync(join(root, 'log.md'), 'utf8');
+
+  const written: string[] = [];
+  const log = console.log;
+  console.log = (...args: unknown[]) => void written.push(args.join(' '));
+  let code: number;
+  try {
+    code = runRefine([], { bundle: root, list: true });
+  } finally {
+    console.log = log;
+  }
+
+  assert.equal(code, 0);
+  const out = written.join('\n');
+  assert.match(out, /dumps\/gateway-timeout/);
+  assert.match(out, /Gateway timeout defaults are per-route/, 'titles, since dump ids are generated');
+  assert.doesNotMatch(out, /drafts\/timeout-mitigation/, 'the drafts area is a different backlog');
+  assert.equal(readFileSync(join(root, 'log.md'), 'utf8'), before);
+});
+
+test('--list needs no actor, but a write still does', () => {
+  const root = sandbox();
+  assert.equal(quiet(() => runRefine([], { bundle: root, list: true })), 0);
+  assert.equal(
+    quiet(() => runRefine(['dumps/retry-budget'], { bundle: root, type: 'Runbook', title: 'X', body: 'y' })),
+    1,
+  );
+});
+
+test('refine with no sources and no --list is refused', () => {
+  const root = sandbox();
+  assert.equal(quiet(() => runRefine([], { ...base, bundle: root })), 1);
+});
