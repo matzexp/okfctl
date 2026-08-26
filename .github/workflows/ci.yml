@@ -51,11 +51,20 @@ jobs:
           node dist/cli.js status --bundle "$RUNNER_TEMP/engines-kb"
       # The fixture's known-bad concept is reported, and reported as an error:
       # proof the checker is doing its job on the floor, not just exiting zero.
+      # Status is captured rather than chained, because a non-zero exit is the
+      # expected outcome here and `set -e` would take the step down with it.
       - run: |
-          set -euo pipefail
-          node dist/cli.js check --bundle test/fixtures/bundle --quiet && exit 1
-          node dist/cli.js check --bundle test/fixtures/bundle --quiet 2>&1 \
-            | grep -q 'type-missing'
+          set -uo pipefail
+          out=$(node dist/cli.js check --bundle test/fixtures/bundle --quiet 2>&1) && status=0 || status=$?
+          echo "$out"
+          if [ "$status" -eq 0 ]; then
+            echo "expected the fixture's known-bad concept to be reported as an error"
+            exit 1
+          fi
+          case "$out" in
+            *type-missing*) ;;
+            *) echo "expected a type-missing error"; exit 1 ;;
+          esac
 
   self-check:
     # The gates this project tells its users to put in CI, run against a bundle
