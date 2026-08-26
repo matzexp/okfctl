@@ -15,7 +15,8 @@ import { health, type TrustTier } from './lifecycle.ts';
  * reasoning about invalidation would.
  */
 
-export type SearchArea = 'dumps' | 'drafts' | 'corpus';
+export const SEARCH_AREAS = ['dumps', 'drafts', 'corpus'] as const;
+export type SearchArea = (typeof SEARCH_AREAS)[number];
 
 export interface SearchHit {
   concept: Concept;
@@ -23,6 +24,10 @@ export interface SearchHit {
   score: number;
   area: SearchArea;
   tier: TrustTier;
+  /** The query terms this document actually matched on. */
+  terms: string[];
+  /** A line of body text around the first match, or null when only frontmatter matched. */
+  snippet: string | null;
 }
 
 /**
@@ -86,6 +91,79 @@ export interface SearchOptions {
   dumpsDir?: string;
   /** Resolved drafts-area directory; defaults to `drafts`. */
   draftsDir?: string;
+  /** Keep only these areas. Empty or absent means every area. */
+  areas?: SearchArea[];
+  /** Keep only these trust tiers. Empty or absent means every tier. */
+  tiers?: TrustTier[];
+  /** Keep only these `type` values, compared case-insensitively. */
+  types?: string[];
+  /** Keep only concepts carrying every one of these tags. */
+  tags?: string[];
+  /**
+   * `all` (the default) is a lookup: it wants documents carrying every term, and
+   * only widens when that finds nothing. `any` is a similarity question — "what
+   * reads like this" — where partial overlap is the answer rather than a
+   * fallback, so it skips the narrowing cascade entirely.
+   */
+  match?: 'all' | 'any';
+}
+
+/**
+ * Words carried by the question rather than the subject. A natural-language
+ * query ("why does the harbor image pull fail") otherwise OR-matches on `why`
+ * and `does` across the whole corpus, and the tail of near-irrelevant hits is
+ * what makes a search expensive to read.
+ */
+const STOPWORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'can', 'did', 'do', 'does',
+  'for', 'from', 'had', 'has', 'have', 'how', 'i', 'if', 'in', 'is', 'it', 'its', 'me',
+  'my', 'no', 'not', 'of', 'on', 'or', 'our', 's', 'so', 'that', 'the', 'their', 'then',
+  'there', 'these', 'they', 'this', 'to', 'up', 'was', 'we', 'were', 'what', 'when',
+  'where', 'which', 'who', 'why', 'will', 'with', 'would', 'you', 'your',
+]);
+
+/**
+ * Drop stopwords, but never everything: a query that is only stopwords is still
+ * a query, and answering it with silence would be worse than answering it badly.
+ */
+function meaningful(query: string): string {
+  const kept = query.split(/\s+/).filter((word) => word && !STOPWORDS.has(word.toLowerCase()));
+  return kept.length > 0 ? kept.join(' ') : query;
+}
+
+function tagsOf(concept: Concept): string[] {
+  const raw = concept.data.tags;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.toLowerCase());
+}
+
+/**
+ * A line of body prose containing one of the matched terms, trimmed to something
+ * a caller can read in a list. Without it every result has to be opened before
+ * anyone can tell whether it is relevant, which is the expensive step in recall.
+ */
+function snippetFor(body: string, terms: string[], width = 160): string | null {
+  if (terms.length === 0) return null;
+  const pattern = new RegExp(terms.map(escapeRegExp).join('|'), 'i');
+
+  for (const raw of body.split('\n')) {
+    const line = raw.trim();
+    // Headings, fences and frontmatter-ish lines make poor one-line context.
+    if (!line || line.startsWith('#') || line.startsWith('```') || line.startsWith('---')) continue;
+    const found = pattern.exec(line);
+    if (!found) continue;
+
+    if (line.length <= width) return line;
+    // Centre the window on the match rather than always taking the first bytes.
+    const start = Math.max(0, found.index - Math.floor((width - found[0].length) / 2));
+    const end = Math.min(line.length, start + width);
+    return `${start > 0 ? '…' : ''}${line.slice(start, end).trim()}${end < line.length ? '…' : ''}`;
+  }
+  return null;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function search(bundle: Bundle, query: string, options: SearchOptions = {}): SearchHit[] {
@@ -110,15 +188,79 @@ export function search(bundle: Bundle, query: string, options: SearchOptions = {
   // `prefix` finds "cardinal" from "cardinality"; `fuzzy` tolerates a typo in a
   // longer term. Both matter when the caller is guessing at what a bundle calls
   // something, which is the whole point of searching rather than listing.
-  const hits = index
-    .search(trimmed, { boost: { ...BOOST }, prefix: true, fuzzy: 0.2 })
-    .flatMap((result) => {
-      const concept = byId.get(String(result.id));
-      if (!concept) return [];
-      const tier = health(concept, today).tier;
-      const boosted = result.score * TRUST_BOOST[tier];
-      return [{ concept, score: boosted, area: area(concept.id, dumpsDir, draftsDir), tier }];
-    });
+  const base = { boost: { ...BOOST }, prefix: true } as const;
+  const subject = meaningful(trimmed);
+
+  // Precise first, loose only when precise finds nothing. Fuzzy matching is what
+  // makes a typo survivable, but it also expands every term into its neighbours —
+  // so `fuzzy` combined with `AND` is barely narrower than `OR`, and a four-word
+  // question comes back matching most of the corpus. Trying exact-AND first means
+  // a caller who knows the words gets a short, precise answer, and a caller who
+  // half-remembers them still gets one.
+  const attempts = options.match === 'any'
+    ? [{ ...base, combineWith: 'OR' as const, fuzzy: 0.2 }]
+    : [
+      { ...base, combineWith: 'AND' as const },
+      { ...base, combineWith: 'AND' as const, fuzzy: 0.2 },
+      { ...base, combineWith: 'OR' as const, fuzzy: 0.2 },
+    ];
+
+  let results: ReturnType<typeof index.search> = [];
+  let partial = false;
+  for (const [attempt, params] of attempts.entries()) {
+    results = index.search(subject, params);
+    if (results.length > 0) {
+      // Only the lookup cascade's last resort is a partial answer. An `any`
+      // search asked for partial overlap and gets it whole.
+      partial = options.match !== 'any' && attempt === attempts.length - 1;
+      break;
+    }
+  }
+
+  // On the last resort, keep only the best partial matches. Plain OR answers
+  // "harbor image pull fail" — where nothing carries all four words — with every
+  // document mentioning any one of them, which is most of an ops corpus and is
+  // worse than a short honest answer. A document matching three of four terms is
+  // a real near-miss; one matching only "harbor" is noise wearing its clothes.
+  if (partial) {
+    const best = Math.max(...results.map((result) => (result.terms ?? []).length));
+    results = results.filter((result) => (result.terms ?? []).length >= best);
+  }
+
+  const wanted = {
+    areas: new Set(options.areas ?? []),
+    tiers: new Set(options.tiers ?? []),
+    types: new Set((options.types ?? []).map((type) => type.toLowerCase())),
+    tags: (options.tags ?? []).map((tag) => tag.toLowerCase()),
+  };
+
+  const hits = results.flatMap((result): SearchHit[] => {
+    const concept = byId.get(String(result.id));
+    if (!concept) return [];
+
+    const tier = health(concept, today).tier;
+    const where = area(concept.id, dumpsDir, draftsDir);
+    if (wanted.areas.size > 0 && !wanted.areas.has(where)) return [];
+    if (wanted.tiers.size > 0 && !wanted.tiers.has(tier)) return [];
+    if (wanted.types.size > 0) {
+      const type = typeof concept.data.type === 'string' ? concept.data.type.toLowerCase() : '';
+      if (!wanted.types.has(type)) return [];
+    }
+    if (wanted.tags.length > 0) {
+      const carried = new Set(tagsOf(concept));
+      if (!wanted.tags.every((tag) => carried.has(tag))) return [];
+    }
+
+    const terms = result.terms ?? [];
+    return [{
+      concept,
+      score: result.score * TRUST_BOOST[tier],
+      area: where,
+      tier,
+      terms,
+      snippet: snippetFor(concept.body, terms),
+    }];
+  });
 
   // MiniSearch returns results ordered by its own score; the trust boost can
   // reorder near-ties, so re-sort on the boosted score rather than trust the

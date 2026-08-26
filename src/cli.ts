@@ -15,6 +15,7 @@ import { runCatalog } from './commands/catalog.ts';
 import { runSearch, DEFAULT_LIMIT } from './commands/search.ts';
 import { runRefs } from './commands/refs.ts';
 import { runRefine } from './commands/refine.ts';
+import { runRelated, DEFAULT_LIMIT as RELATED_LIMIT } from './commands/related.ts';
 import { DEFAULT_DRAFTS_DIR } from './core/drafts.ts';
 import { DEFAULT_DUMPS_DIR } from './core/dumps.ts';
 import { requireBundleDir, resolveBundleDir } from './core/userconfig.ts';
@@ -29,6 +30,10 @@ program
   .option('-b, --bundle <dir>', 'path to the bundle root')
   .option('--dumps-dir <dir>', 'bundle-relative dumps area (raw captures)', DEFAULT_DUMPS_DIR)
   .option('--drafts-dir <dir>', 'bundle-relative drafts area (refined entries)', DEFAULT_DRAFTS_DIR);
+
+/** A comma-separated flag value, e.g. `--tags a,b`. Empty entries are dropped. */
+const list = (value: string): string[] =>
+  value.split(',').map((entry) => entry.trim()).filter(Boolean);
 
 const bundleDir = (command: Command): string =>
   (command.optsWithGlobals().bundle as string | undefined) ?? resolveBundleDir();
@@ -76,8 +81,7 @@ program
   .requiredOption('--type <type>', 'concept type, e.g. Decision (SPEC 11; open vocabulary)')
   .option('--title <text>', 'title; defaults to the filename read as words')
   .option('--description <text>', 'one-line summary')
-  .option('--tags <list>', 'comma-separated tags', (value: string) =>
-    value.split(',').map((tag) => tag.trim()).filter(Boolean))
+  .option('--tags <list>', 'comma-separated tags', list)
   .option('--by <actor>', 'producing actor recorded in generated (SPEC 7)')
   .option('--status <status>', 'initial status', 'draft')
   .option('--stale-after <date>', 'set stale_after to an absolute YYYY-MM-DD')
@@ -128,8 +132,7 @@ program
   .requiredOption('--by <actor>', 'producing actor (SPEC 7); never guessed')
   .option('--type <type>', 'concept type; defaults to a provisional one (SPEC 4.1)')
   .option('--description <text>', 'one-line summary')
-  .option('--tags <list>', 'comma-separated tags', (value: string) =>
-    value.split(',').map((tag) => tag.trim()).filter(Boolean))
+  .option('--tags <list>', 'comma-separated tags', list)
   .option('--body <text>', 'the body, written verbatim')
   .option('--stdin', 'read the body from standard input')
   .option('--to <dir>', 'target directory instead of the dumps area')
@@ -156,8 +159,7 @@ program
   .option('--title <text>', 'title; required for a fresh entry, defaults to the existing title with --extend')
   .requiredOption('--by <actor>', 'refining actor (SPEC 7); never guessed')
   .option('--description <text>', 'one-line summary')
-  .option('--tags <list>', 'comma-separated tags', (value: string) =>
-    value.split(',').map((tag) => tag.trim()).filter(Boolean))
+  .option('--tags <list>', 'comma-separated tags', list)
   .option('--body <text>', 'the body, written verbatim (the full resulting file, when --extend is used)')
   .option('--stdin', 'read the body from standard input')
   .option('--to <dir>', 'target directory instead of the drafts area')
@@ -260,6 +262,11 @@ program
   .description('find concepts by relevance across frontmatter and body, ranked with trust tier')
   .option('--limit <n>', `results to show (default ${DEFAULT_LIMIT})`, (value: string) =>
     Number.parseInt(value, 10))
+  .option('--area <list>', 'only these areas: dumps, drafts, corpus', list)
+  .option('--tier <list>', 'only these trust tiers: unverified, machine-confirmed, human-reviewed', list)
+  .option('--type <list>', 'only these concept types, compared case-insensitively', list)
+  .option('--tag <list>', 'only concepts carrying every one of these tags', list)
+  .option('--snippet', 'show a line of matching body text under each result')
   .option('--format <fmt>', 'table (default), json, or yaml')
   .option('--json', 'shorthand for --format json')
   .action(function (this: Command, query: string, options) {
@@ -271,6 +278,23 @@ program
       dumpsDir: dumpsDir(this),
       draftsDir: draftsDir(this),
       query,
+      ...options,
+    }));
+  });
+
+program
+  .command('related <concept>')
+  .description('the neighbourhood of a concept: links out, links in, shared tags, similar text')
+  .option('--limit <n>', `neighbours to show (default ${RELATED_LIMIT})`, (value: string) =>
+    Number.parseInt(value, 10))
+  .option('--format <fmt>', 'table (default), json, or yaml')
+  .option('--json', 'shorthand for --format json')
+  .action(function (this: Command, concept: string, options) {
+    exit(runRelated({
+      bundle: bundleDir(this),
+      dumpsDir: dumpsDir(this),
+      draftsDir: draftsDir(this),
+      concept,
       ...options,
     }));
   });

@@ -5,7 +5,8 @@ export type Status = 'draft' | 'stable' | 'deprecated';
 export const STATUSES: Status[] = ['draft', 'stable', 'deprecated'];
 
 /** SPEC §5.3, lowest to highest. */
-export type TrustTier = 'unverified' | 'machine-confirmed' | 'human-reviewed';
+export const TRUST_TIERS = ['unverified', 'machine-confirmed', 'human-reviewed'] as const;
+export type TrustTier = (typeof TRUST_TIERS)[number];
 
 export interface Event {
   by: string;

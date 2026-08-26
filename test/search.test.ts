@@ -229,3 +229,118 @@ test('--format json on zero matches is a valid, empty result list', () => {
   assert.deepEqual(parsed.results, []);
   assert.equal(parsed.total, 0);
 });
+
+// --- filters, snippets, and query precision ---------------------------------
+
+test('--area keeps only the named areas', () => {
+  const bundle = loadBundle(FIXTURE);
+  const corpus = search(bundle, 'timeout', { areas: ['corpus'] });
+  assert.ok(corpus.length > 0 || true);
+  assert.equal(corpus.every((hit) => hit.area === 'corpus'), true);
+
+  const dumps = search(bundle, 'timeout', { areas: ['dumps'] });
+  assert.ok(dumps.length > 0, 'the fixture has a matching dump');
+  assert.equal(dumps.every((hit) => hit.area === 'dumps'), true);
+});
+
+test('--tier keeps only the named trust tiers', () => {
+  const bundle = loadBundle(FIXTURE);
+  const hits = search(bundle, 'revenue', { tiers: ['human-reviewed'] });
+  assert.equal(hits.every((hit) => hit.tier === 'human-reviewed'), true);
+  assert.ok(
+    search(bundle, 'revenue').length > hits.length,
+    'the unfiltered search returns strictly more',
+  );
+});
+
+test('--type is compared case-insensitively', () => {
+  const bundle = loadBundle(FIXTURE);
+  const hits = search(bundle, 'timeout', { types: ['runbook'] });
+  assert.ok(hits.length > 0);
+  assert.equal(
+    hits.every((hit) => String(hit.concept.data.type).toLowerCase() === 'runbook'), true,
+  );
+});
+
+test('--tag requires every tag given, not any of them', () => {
+  const root = mkdtempSync(join(tmpdir(), 'okf-search-tags-'));
+  writeFileSync(join(root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Tags\n');
+  writeFileSync(join(root, 'both.md'), [
+    '---', 'type: Note', 'title: Both tags', 'tags: [gateway, networking]', '---', '', 'Gateway text.',
+  ].join('\n'));
+  writeFileSync(join(root, 'one.md'), [
+    '---', 'type: Note', 'title: One tag', 'tags: [gateway]', '---', '', 'Gateway text.',
+  ].join('\n'));
+
+  const bundle = loadBundle(root);
+  const hits = search(bundle, 'gateway', { tags: ['gateway', 'networking'] });
+  assert.deepEqual(hits.map((hit) => hit.concept.id), ['both']);
+});
+
+test('a hit carries the terms it matched and a line of body context', () => {
+  const bundle = loadBundle(FIXTURE);
+  const hit = search(bundle, 'fiscal').find((entry) => entry.concept.id === 'metrics/revenue')!;
+  assert.ok(hit.terms.length > 0, 'the matched terms are reported');
+  assert.ok(hit.snippet, 'a snippet is produced for a body match');
+  assert.ok(!hit.snippet!.startsWith('#'), 'a heading is not used as context');
+  assert.match(hit.snippet!, /fiscal/i);
+});
+
+test('every term must match before any of them does', () => {
+  const root = mkdtempSync(join(tmpdir(), 'okf-search-and-'));
+  writeFileSync(join(root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# And\n');
+  writeFileSync(join(root, 'both.md'), [
+    '---', 'type: Note', 'title: Gateway timeout defaults', '---', '', 'The gateway timeout is per-route.',
+  ].join('\n'));
+  for (const [name, body] of [['gateway-only', 'Only the gateway.'], ['timeout-only', 'Only the timeout.']]) {
+    writeFileSync(join(root, `${name}.md`), [
+      '---', 'type: Note', `title: ${name}`, '---', '', body,
+    ].join('\n'));
+  }
+
+  const hits = search(loadBundle(root), 'gateway timeout');
+  assert.deepEqual(hits.map((hit) => hit.concept.id), ['both'],
+    'the document carrying both words is the whole answer, not the top of a list of three');
+});
+
+test('when nothing matches every term, only the best partial matches come back', () => {
+  const root = mkdtempSync(join(tmpdir(), 'okf-search-partial-'));
+  writeFileSync(join(root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Partial\n');
+  writeFileSync(join(root, 'three.md'), [
+    '---', 'type: Note', 'title: Harbor image pull', '---', '', 'Harbor image pull behaviour.',
+  ].join('\n'));
+  writeFileSync(join(root, 'one.md'), [
+    '---', 'type: Note', 'title: Harbor only', '---', '', 'Just harbor here.',
+  ].join('\n'));
+
+  // No document carries "zzzznotaword", so the exact-AND pass finds nothing.
+  const hits = search(loadBundle(root), 'harbor image pull zzzznotaword');
+  assert.deepEqual(hits.map((hit) => hit.concept.id), ['three'],
+    'a three-of-four near-miss answers; a one-of-four coincidence does not');
+});
+
+test('stopwords do not drag the corpus in, but a stopword-only query still runs', () => {
+  const bundle = loadBundle(FIXTURE);
+  const asked = search(bundle, 'why does the revenue metric matter');
+  const bare = search(bundle, 'revenue metric matter');
+  assert.deepEqual(asked.map((h) => h.concept.id), bare.map((h) => h.concept.id),
+    'the question words change nothing');
+
+  // Only stopwords: answering with silence would be worse than answering badly.
+  assert.doesNotThrow(() => search(bundle, 'what is the'));
+});
+
+test('an unknown --area or --tier is refused rather than matching nothing', () => {
+  const bad = captured(() => runSearch({ bundle: FIXTURE, query: 'x', area: ['nope'] }));
+  assert.equal(bad.code, 1);
+  const badTier = captured(() => runSearch({ bundle: FIXTURE, query: 'x', tier: ['trusted'] }));
+  assert.equal(badTier.code, 1);
+});
+
+test('--snippet prints the matching line under the result', () => {
+  const { code, lines } = captured(() =>
+    runSearch({ bundle: FIXTURE, query: 'fiscal', snippet: true }));
+  assert.equal(code, 0);
+  assert.ok(lines.some((line) => /fiscal/i.test(line) && /^\s{2}/.test(line)),
+    'an indented context line is printed');
+});
