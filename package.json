@@ -1,7 +1,7 @@
 {
   "name": "okfctl",
   "version": "0.1.0",
-  "description": "Lifecycle tooling for Open Knowledge Format (OKF) v0.2 bundles — health reporting, draft→stable promotion, index regeneration.",
+  "description": "Lifecycle tooling for Open Knowledge Format (OKF) v0.2 bundles \u2014 health reporting, draft\u2192stable promotion, index regeneration.",
   "type": "module",
   "bin": {
     "okfctl": "dist/cli.js",
@@ -19,6 +19,8 @@
     "build": "tsc",
     "dev": "node --experimental-strip-types src/cli.ts",
     "test": "node --test --experimental-strip-types test/*.test.ts",
+    "lint": "tsc --noEmit",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

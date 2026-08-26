@@ -45,7 +45,10 @@ the rest of the tool's design.
 
 ## Requirements
 
-Node.js >= 20.19.0.
+Node.js >= 20.19.0 to run the built CLI. Developing against the sources needs >= 22.6,
+because `npm test` and `npm run dev` execute TypeScript directly under
+`--experimental-strip-types`. CI checks both: the suite on 22.6/22/24, and the built
+output on the 20.19 floor.
 
 ## Install
 
@@ -437,6 +440,16 @@ A tool that errors on the soft tier produces bundles that are "valid" only to it
 - run: okfctl catalog --check  # only if you keep a catalog.md
 ```
 
+`check --strict` is worth adding once a bundle is clean: it turns the advisory tier into a
+gate, which stops warnings accumulating to the point where nobody reads them. Reach for
+`--ignore <rules>` rather than dropping `--strict` when one rule does not suit the bundle.
+
+This repository runs the same gates against a bundle it scaffolds from scratch in CI —
+`init`, `capture`, `refine`, then `check --strict`, `index --check` and
+`refs --broken --strict`. A tool that flags other people's corpora should not emit
+documents its own checker complains about, and that failure is invisible to unit tests,
+because the writer and the checker each pass on their own.
+
 ## Development bundle
 
 The tool was developed against a real bundle converted from a homelab GitOps repository — its
@@ -481,6 +494,7 @@ freshness horizon the agent cannot establish is asked for, not guessed.
 ```bash
 npm install
 npm test              # node:test, no build step required
+npm run lint          # tsc --noEmit
 npm run build         # tsc -> dist/
 npm run dev -- status # run the CLI from source
 ```

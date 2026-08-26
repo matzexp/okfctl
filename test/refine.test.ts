@@ -567,3 +567,96 @@ test('a longer replacing --extend needs no flag at all', () => {
   }));
   assert.equal(code, 0);
 });
+
+// --- SPEC §4.1 round-trip preservation ---------------------------------------
+
+/**
+ * `--extend` is a round trip through the YAML document model, and §4.1 asks
+ * consumers to preserve what they do not understand. Simple scalars, comments and
+ * key order are covered above; these are the shapes that actually break naive
+ * re-serialization.
+ */
+test('--extend preserves exotic but legal frontmatter it does not own', () => {
+  const root = sandbox();
+  const file = join(root, 'drafts/timeout-mitigation.md');
+
+  writeFileSync(file, [
+    '---',
+    'type: Runbook',
+    'title: Mitigate gateway timeout defaults',
+    'description: Refined from a dumps-area capture; not yet placed in the corpus.',
+    'status: draft',
+    'generated: { by: okf-refine/1.0, at: 2026-08-21T10:00:00Z }',
+    'owner: &team platform',
+    'escalation: *team',
+    'runbook_steps: |',
+    '  1. Read the listener default.',
+    '  2. Set the per-route timeout.',
+    'summary: >-',
+    '  A folded scalar that wraps',
+    '  onto a second line.',
+    'thresholds:',
+    '  warn: 0.5',
+    '  page: 0.9',
+    'empty_value:',
+    'quoted_number: "42"',
+    'unicode_title: "gateway — timeout · 504"',
+    'sources:',
+    '  - id: gateway-timeout',
+    '    title: Gateway timeout defaults are per-route',
+    '    resource: dumps/gateway-timeout',
+    '---',
+    '',
+    '# Mitigate gateway timeout defaults',
+    '',
+    'Set the per-route timeout explicitly rather than relying on the listener default.',
+  ].join('\n'));
+
+  const code = quiet(() => runRefine(['dumps/retry-budget'], {
+    bundle: root, extend: 'drafts/timeout-mitigation', append: true, by: BY, body: 'Follow-up.',
+  }));
+  assert.equal(code, 0);
+
+  const raw = readFileSync(file, 'utf8');
+  assert.match(raw, /^runbook_steps: \|$/m, 'a literal block scalar keeps its style');
+  assert.match(raw, /^ {2}1\. Read the listener default\.$/m, 'and its content');
+  assert.match(raw, /^summary: >-$/m, 'a folded scalar keeps its style');
+  assert.match(raw, /^thresholds:$/m, 'a nested mapping survives');
+  assert.match(raw, /^ {2}page: 0\.9$/m);
+  assert.match(raw, /^quoted_number: "42"$/m, 'a quoted number is not turned into a number');
+  assert.match(raw, /gateway — timeout · 504/, 'non-ASCII is not escaped away');
+  assert.match(raw, /^empty_value:\s*$/m, 'an empty value stays empty rather than becoming null');
+
+  // Anchors and aliases are legal YAML; whichever way the writer renders them, the
+  // resolved value must survive.
+  const reparsed = loadBundle(root).concepts.find((c) => c.id === 'drafts/timeout-mitigation')!;
+  assert.equal(reparsed.data.escalation, 'platform', 'an alias still resolves to its anchor');
+  assert.equal(reparsed.parseError, null, 'the result is still parseable');
+});
+
+test('a round trip through --extend is stable: extending twice changes only what it owns', () => {
+  const root = sandbox();
+  const file = join(root, 'drafts/timeout-mitigation.md');
+  writeFileSync(file, readFileSync(file, 'utf8').replace(
+    'status: draft',
+    'owner: platform\nthresholds:\n  warn: 0.5\nstatus: draft',
+  ));
+
+  quiet(() => runRefine(['dumps/retry-budget'], {
+    bundle: root, extend: 'drafts/timeout-mitigation', append: true, by: BY, body: 'First.',
+  }));
+  const once = readFileSync(file, 'utf8');
+
+  quiet(() => runRefine(['dumps/retry-budget'], {
+    bundle: root, extend: 'drafts/timeout-mitigation', append: true, by: BY, body: 'Second.',
+  }));
+  const twice = readFileSync(file, 'utf8');
+
+  // Only `generated.at` may differ in the frontmatter; the body legitimately grew.
+  const frontmatter = (text: string) => text.split('\n---\n')[0].replace(/at: [^\s}]+/g, 'at: TIME');
+  assert.equal(frontmatter(twice), frontmatter(once), 'no field churns on a second pass');
+  assert.match(twice, /First\./, 'the first append survived the second');
+  assert.match(twice, /Second\./);
+  assert.match(twice, /^owner: platform$/m);
+  assert.match(twice, /^ {2}warn: 0\.5$/m);
+});

@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # `npm test` runs the sources directly under --experimental-strip-types,
+        # which lands in 22.6. The floor is asserted rather than assumed.
+        node: ['22.6', '22.x', '24.x']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  engines:
+    # `engines` promises the *built* output runs on Node >= 20.19, which is a
+    # different claim from what the test runner needs. Build on current, run on
+    # the floor, so the promise is checked rather than asserted.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.19'
+      - run: node dist/cli.js --version
+      - run: node dist/cli.js check --bundle test/fixtures/bundle --quiet
+
+  self-check:
+    # The gates this project tells its users to put in CI, run against a bundle
+    # this project just created. A tool that flags other people's corpora should
+    # not emit documents its own checker complains about — that regression is
+    # invisible in unit tests, because each half passes on its own.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - run: npm ci
+      - run: npm run build
+
+      - name: Scaffold a bundle and write into it the way an agent would
+        run: |
+          set -euo pipefail
+          okf() { node dist/cli.js "$@"; }
+          okf init /tmp/kb
+          echo 'A finding with an exact symptom: connection reset by peer.' \
+            | okf capture --bundle /tmp/kb --title 'Peer resets on idle connections' \
+                --by agent/1.0 --stdin
+          echo 'The refined statement of it.' \
+            | okf refine --bundle /tmp/kb "$(okf refine --bundle /tmp/kb --list \
+                | awk 'NR==2 {print $1}')" \
+                --type Runbook --title 'Handle idle connection resets' \
+                --description 'Why idle connections reset, and what to set.' \
+                --tags networking,timeouts --by agent/1.0 --stdin
+          okf index --bundle /tmp/kb
+
+      - name: The bundle it just wrote is conformant, clean, and in sync
+        run: |
+          set -euo pipefail
+          node dist/cli.js check --bundle /tmp/kb --strict
+          node dist/cli.js index --check --bundle /tmp/kb
+          node dist/cli.js refs --broken --strict --bundle /tmp/kb
