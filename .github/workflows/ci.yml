@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# Every job here only reads the repo and installs from the registry. Stated
+# explicitly so the needs are documented, and so they stay least-privilege if
+# the org default changes or this workflow is copied elsewhere.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
