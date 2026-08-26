@@ -173,3 +173,37 @@ independently of the dumps inbox.
 - **WHEN** both the dumps area and the drafts area hold concepts
 - **THEN** each is named on its own line with its own count and age, never combined into
   one figure
+
+### Requirement: The Curation Backlog Is Named When Intake Outruns It
+
+The system SHALL report, on an unfiltered run, when the dumps and drafts areas together
+hold more concepts than the corpus does and there is a substantial number of them, naming
+the verbs that empty each area. This SHALL NOT place those concepts in the attention list,
+and SHALL NOT fire on a bundle too small for the ratio to mean anything.
+
+#### Scenario: Intake has outrun curation
+
+- **WHEN** the two holding areas together hold more concepts than the corpus, and hold
+  enough of them that a single refining session would not clear them
+- **THEN** the summary names how many are unplaced against how many are placed, and names
+  the commands that empty each inbox, because a bundle whose write path is automatic and
+  whose curation path is not does not fail loudly — it fills up, with every individual
+  count looking reasonable
+
+#### Scenario: A young bundle says nothing
+
+- **WHEN** a freshly scaffolded bundle holds a capture or two and no corpus concepts
+- **THEN** no backlog line is printed, because the ratio is true of every bundle on its
+  first day and a signal that fires on a bundle doing the right thing is one nobody reads
+  by the time it matters
+
+#### Scenario: A healthy corpus says nothing
+
+- **WHEN** the corpus holds at least as many concepts as the two holding areas
+- **THEN** no backlog line is printed
+
+#### Scenario: The backlog is a summary signal, not an attention entry
+
+- **WHEN** the backlog line is printed
+- **THEN** the holding-area concepts still report through their own inboxes and stay out
+  of the attention list, because an unrefined dump is not rotting

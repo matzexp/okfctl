@@ -174,13 +174,42 @@ separately addressable: writing, upserting, or removing one SHALL NOT disturb an
 ### Requirement: Installation Is Removable
 
 The system SHALL remove exactly what it installed for a host on request, leaving every
-other setting in the host's configuration intact.
+other setting in the host's configuration intact — and, because the user-scope half is
+shared by every bundle wired to that host, SHALL take that half back only when no other
+bundle is still using it.
 
 #### Scenario: Uninstalling a host
 
-- **WHEN** the caller removes an installed host
+- **WHEN** the caller removes an installed host and no other bundle is wired to it
 - **THEN** the hook entry and the files that were installed are gone at both scopes,
   unrelated settings are unchanged, and the command reports what it removed
+
+#### Scenario: Another bundle is still wired to the host
+
+- **WHEN** a host is removed for one bundle while another bundle is still wired to it
+- **THEN** only the removed bundle's project-scope curation skills are deleted, the
+  user-scope capture and recall workflows and the event hook are kept, and the command
+  names the bundle still holding them — because removing the shared half on one bundle's
+  behalf leaves every other one looking wired and silently no longer capturing
+
+#### Scenario: The last bundle out takes the shared half
+
+- **WHEN** the final bundle wired to a host is removed
+- **THEN** the user-scope workflows and the hook are removed too, exactly as they would
+  have been had only one bundle ever been wired
+
+#### Scenario: An install predating the wiring record removes in full
+
+- **WHEN** a host was wired before the tool recorded which bundles use it, so no other
+  bundle can be named
+- **THEN** removal takes back both scopes as documented, because the record can only ever
+  make removal less destructive than it already was
+
+#### Scenario: A previewed removal records nothing
+
+- **WHEN** removal runs with the preview flag
+- **THEN** the record of which bundles are wired to the host is unchanged, along with
+  every file
 
 #### Scenario: A file emptied by removal is deleted
 
@@ -298,7 +327,23 @@ rather than resetting it to the tool's default.
 #### Scenario: An unparseable installed interval falls back to the default
 
 - **WHEN** the installed hook command's interval cannot be parsed back out
-- **THEN** update applies the tool's default interval rather than refusing
+- **THEN** update applies the tool's default interval rather than refusing, rather than
+  the most frequent interval there is
+
+#### Scenario: Every hook host's interval is readable, whatever its config shape
+
+- **WHEN** a host records its hook entries in a shape other hosts do not use — flat rather
+  than nested in matcher groups, or the reverse
+- **THEN** its installed interval is still read back and preserved, because a shape the
+  reader does not handle is indistinguishable from no install at all and silently resets
+  the interval on every refresh
+
+#### Scenario: The config location comes from the host that writes it
+
+- **WHEN** a hook-capable host is supported
+- **THEN** that host's own adapter reports where its hook config lives, so a host cannot
+  be present for installation and absent from the interval lookup — the drift that
+  silently reset one host's interval on every update
 
 ### Requirement: Update Is Previewable
 

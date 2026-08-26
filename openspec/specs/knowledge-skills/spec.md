@@ -240,6 +240,33 @@ conversation, and SHALL record the agent as the producer of that summary.
 - **THEN** it applies the full criteria from its own reference file, not a copy embedded
   in the always-loaded workflow file, so the same criteria is not maintained twice
 
+#### Scenario: The bundle is searched before a dump is added to it
+
+- **WHEN** the capture workflow has decided something is worth keeping
+- **THEN** it searches the bundle first, because capture runs automatically while every
+  step after it waits on a person — so a duplicate dump is not a tidy-up someone does
+  later but permanent backlog, and two captures of one finding split the search results
+  for it so both are harder to find than either alone
+
+#### Scenario: The bundle already holds the finding
+
+- **WHEN** that search turns up an entry saying what this session would have captured
+- **THEN** the workflow writes nothing and says so, unless the session establishes
+  something the existing entry does not — in which case it captures only what is new,
+  naming the entry it adds to
+
+#### Scenario: The match is a draft this would extend
+
+- **WHEN** that search turns up a drafts-area entry the new material extends
+- **THEN** the workflow names it and offers the refine workflow's append instead of
+  writing a second dump, without running it from capture
+
+#### Scenario: The match is a corpus concept this contradicts
+
+- **WHEN** that search turns up a corpus concept the session's finding disagrees with
+- **THEN** the contradiction is worth capturing, named against the concept it disagrees
+  with, and the corpus concept is never edited from this workflow
+
 ### Requirement: Recall Interprets Trust Before Acting On It
 
 The recall workflow SHALL search the registered bundle through the CLI's search verb, and
@@ -265,6 +292,19 @@ unreviewed or unverified match with the same confidence as a human-reviewed, sta
 - **THEN** it does not read any of the three policy files, because none of them scopes
   how search results should be interpreted — that judgment is generic to OKF's trust-tier
   model, not a bundle-specific convention
+
+#### Scenario: A search that finds nothing is retried loosely before giving up
+
+- **WHEN** a search returns nothing, or nothing that answers the question
+- **THEN** the workflow retries it in the search verb's similarity mode before reporting
+  the bundle silent, because search is lexical and a question phrased in the searcher's
+  words can miss an entry titled in the vocabulary of the system it describes
+
+#### Scenario: An empty answer says what was asked
+
+- **WHEN** the workflow reports that nothing relevant turned up
+- **THEN** it names the phrasings it tried and whether the looser mode was among them, so
+  a miss is reported as weak evidence of absence rather than as the bundle knowing nothing
 
 #### Scenario: Recall never writes
 

@@ -121,6 +121,77 @@ its trust tier, one per line, ordered by rank.
 - **WHEN** a result line is printed
 - **THEN** it names the concept's trust tier (SPEC §5.3), alongside its area
 
+#### Scenario: Matching context is shown on request
+
+- **WHEN** the caller passes `--snippet`
+- **THEN** a line of body text containing one of the matched terms is printed under each
+  result, so triage costs one search rather than one search plus a read of every candidate
+
+### Requirement: Result Filters
+
+The system SHALL let the caller narrow results by area, trust tier, concept type, and
+tag, refusing an unknown filter value rather than silently matching nothing. Filters
+SHALL narrow the search itself rather than being applied to the result it already
+settled on.
+
+#### Scenario: Area, tier, type and tag narrow the result
+
+- **WHEN** the caller passes `--area`, `--tier`, `--type`, or `--tag`
+- **THEN** only concepts matching every filter given are returned, with `--tag` requiring
+  every tag named rather than any of them, and `--type` compared case-insensitively
+
+#### Scenario: An unknown filter value is refused
+
+- **WHEN** the caller passes an area or tier that is not one of the defined values
+- **THEN** the command reports the invalid value and the accepted ones, and exits
+  non-zero, rather than returning an empty result the caller would read as "nothing known"
+
+#### Scenario: A filter narrows the search rather than truncating its result
+
+- **WHEN** a concept that fails the filter would have satisfied the query on its own, and
+  a concept that passes the filter would be found only by a looser interpretation of the
+  same query
+- **THEN** the filtered concept is returned, because applying the filter after the fact
+  would let an excluded document end the search and report the bundle silent about
+  something it knows
+
+### Requirement: Match Modes
+
+The system SHALL support two ways of combining a multi-word query: a lookup that wants
+every term, falling back to the best partial overlap; and a similarity mode that ranks by
+how much of the query overlaps. The lookup SHALL be the default, and a lookup that finds
+nothing SHALL name the similarity mode.
+
+#### Scenario: The default is a lookup
+
+- **WHEN** a query's terms all appear in one concept
+- **THEN** that concept is the answer, rather than the top of a list also holding
+  concepts carrying only some of the terms
+
+#### Scenario: The similarity mode ranks by overlap
+
+- **WHEN** the caller passes `--match any` and no concept carries every term
+- **THEN** concepts carrying some of them are returned, ranked by relevance, rather than
+  being cut to the best partial overlap the lookup would apply
+
+#### Scenario: A query phrased in the searcher's words still reaches the answer
+
+- **WHEN** the concept that answers a question is titled in the vocabulary of the system
+  it describes, and the query is phrased the way someone would ask a colleague
+- **THEN** the similarity mode reaches it, because search is lexical and the lookup can
+  only match the words the concept actually carries
+
+#### Scenario: An empty lookup names the looser mode
+
+- **WHEN** a default search returns no results
+- **THEN** the output names `--match any`, so a caller does not read a vocabulary mismatch
+  as the bundle knowing nothing
+
+#### Scenario: The suggestion is not repeated to a caller already using it
+
+- **WHEN** a `--match any` search returns no results
+- **THEN** the output does not suggest the mode that is already in use
+
 ### Requirement: Result Limit
 
 The system SHALL cap the number of returned results to a default limit and SHALL let the

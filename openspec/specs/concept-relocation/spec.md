@@ -95,6 +95,49 @@ untouched.
 - **WHEN** a move completes on a bundle whose links all resolved beforehand
 - **THEN** the reference check reports no unresolved internal links
 
+### Requirement: Outbound Links Follow The Concept
+
+The system SHALL rewrite the moved concept's own relative links so that they resolve from
+its new location, under the same rules that govern inbound rewriting: only links that
+already resolved, never a root-absolute target, never a bare fragment, and never a path in
+prose or code.
+
+#### Scenario: A relative link survives a change of depth
+
+- **WHEN** the moved concept links to another concept by a relative path, and the move
+  changes how many directories separate them
+- **THEN** the target is recomputed from the new location so it still resolves, and the
+  link's text and fragment are unchanged
+
+#### Scenario: A root-absolute link is left alone
+
+- **WHEN** the moved concept links to something by a root-absolute path
+- **THEN** it is not rewritten, because it already addresses the bundle root and moving
+  the document does not change what it points at
+
+#### Scenario: A link to the document itself travels with it
+
+- **WHEN** the moved concept carries a bare `#fragment` link into its own body
+- **THEN** it is not rewritten, because it addresses the document rather than a location
+
+#### Scenario: A move that changes nothing does not churn the file
+
+- **WHEN** every relative link in the moved concept resolves to the same place from the
+  new location as from the old one
+- **THEN** the moved file's bytes are unchanged, so a same-depth relocation produces no
+  spurious diff
+
+#### Scenario: The moved concept has no broken links afterward
+
+- **WHEN** a move completes on a concept whose own links all resolved beforehand
+- **THEN** the reference check reports no unresolved internal links in it
+
+#### Scenario: A rolled-back move restores the body it had
+
+- **WHEN** a move fails after the file has been relocated and its links recomputed
+- **THEN** the file is back at its original path holding its original body, not the body
+  recomputed for a location it no longer occupies
+
 ### Requirement: Generated Indexes Follow The Move
 
 The system SHALL regenerate the `index.md` of both the source and the target directory
