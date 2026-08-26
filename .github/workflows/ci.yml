@@ -40,7 +40,22 @@ jobs:
         with:
           node-version: '20.19'
       - run: node dist/cli.js --version
-      - run: node dist/cli.js check --bundle test/fixtures/bundle --quiet
+      # Real work on the floor — scaffold, walk, parse frontmatter, report —
+      # against a bundle that is clean by construction. The tracked fixture is
+      # not: it deliberately carries a concept with no `type`, because the suite
+      # needs that error case, so checking it here could only ever exit 1.
+      - run: |
+          set -euo pipefail
+          node dist/cli.js init "$RUNNER_TEMP/engines-kb"
+          node dist/cli.js check --bundle "$RUNNER_TEMP/engines-kb" --strict
+          node dist/cli.js status --bundle "$RUNNER_TEMP/engines-kb"
+      # The fixture's known-bad concept is reported, and reported as an error:
+      # proof the checker is doing its job on the floor, not just exiting zero.
+      - run: |
+          set -euo pipefail
+          node dist/cli.js check --bundle test/fixtures/bundle --quiet && exit 1
+          node dist/cli.js check --bundle test/fixtures/bundle --quiet 2>&1 \
+            | grep -q 'type-missing'
 
   self-check:
     # The gates this project tells its users to put in CI, run against a bundle
