@@ -145,7 +145,7 @@ Every command also takes `--dumps-dir <dir>` and `--drafts-dir <dir>` if `dumps/
 | `okfctl update [dir]` | Refresh exactly the hosts already installed for a bundle — current skills, commands, and hook config — without naming `--agent` again. Preserves each host's installed `--capture-every` interval unless overridden. |
 | `okfctl capture` | Low-ceremony capture into the dumps area: title, actor and a body, placement deferred. |
 | `okfctl refine <source...>` | Turn one or more dumps into a typed, titled entry in the drafts area, citing what it drew from. `--extend <id>` updates an existing drafts-area entry in place instead; `--list` shows the unrefined inbox and writes nothing. |
-| `okfctl move <from> <to>` | Relocate a concept, carrying its inbound links, indexes and log with it. Not a promotion. |
+| `okfctl move <from> <to>` | Relocate a concept, carrying its links — inbound and its own outbound — indexes and log with it. Not a promotion. |
 | `okfctl check` | Two-tier conformance + lint. Errors gate CI; warnings inform. `--rule`/`--ignore` filter the advisory tier by rule id; errors are never filtered. |
 | `okfctl status` | Corpus health: trust tiers, stale, draft, drifted, orphans, and the two inboxes. |
 | `okfctl new <path>` | Ingest: create a concept that conforms on the first write. |
@@ -155,7 +155,7 @@ Every command also takes `--dumps-dir <dir>` and `--drafts-dir <dir>` if `dumps/
 | `okfctl index` | Regenerate `index.md` from frontmatter (§8). Each file is rewritten whole, so an `index.md` is derived data and not a place for hand-written prose. `--check` for CI. |
 | `okfctl refs` | Reference integrity: footnote ↔ `sources[].id`, and internal links. `--strict` for CI. |
 | `okfctl catalog` | The whole bundle as one document, grouped by type. Prints by default. |
-| `okfctl search <query>` | Ranked full-text search over `title`, `description`, `tags` and body, boosted by trust tier. Each result names its area (dumps/drafts/corpus) and trust tier. `--snippet` for matching context, `--area`/`--tier`/`--type`/`--tag` to narrow, `--limit` to widen. Indexed in memory per run, never persisted. |
+| `okfctl search <query>` | Ranked full-text search over `title`, `description`, `tags` and body, boosted by trust tier. Each result names its area (dumps/drafts/corpus) and trust tier. `--snippet` for matching context, `--area`/`--tier`/`--type`/`--tag` to narrow, `--match any` to widen, `--limit` for more results. Indexed in memory per run, never persisted. |
 | `okfctl related <concept>` | The neighbourhood of one concept: links out, links in, shared tags, similar text — ranked by how deliberate the relation is. Read-only. |
 
 Common invocations:
@@ -168,6 +168,7 @@ okfctl status --orphan                # placed concepts nothing links to
 okfctl status --json                  # machine-readable (shorthand for --format json)
 okfctl status --format yaml           # same data, yaml
 okfctl search "gateway timeout" --snippet          # show why each result matched
+okfctl search "why does the gateway drop connections" --match any   # rank by overlap, for a query phrased differently than the bundle
 okfctl search "timeout" --area corpus --tier human-reviewed   # only settled knowledge
 okfctl search "gateway" --type Decision --tag networking
 okfctl related decisions/gateway-api  # what else should I be reading?
@@ -213,6 +214,23 @@ okfctl status --format json | jq '.concepts[] | select(.tier == "unverified")'
 okfctl search "gateway timeout" --format yaml
 ```
 
+### Two ways to ask
+
+`--match all` (the default) is a **lookup**: it wants documents carrying every term, and
+falls back to the best partial overlap. `--match any` is a **similarity question** — "what
+reads like this" — ranked by how much overlaps.
+
+The default is right when you know the bundle's words for something, and wrong when you do
+not — which is usually why you are searching. A question phrased the way you would ask a
+colleague (`why does authentik go down during a database failover`) can miss the entry that
+answers it, because that entry is titled in the vocabulary of the system (`CNPG primary
+restart briefly interrupts Authentik`). Search is lexical: nothing matches on meaning, so a
+miss is weak evidence of absence until you have tried `--match any`. An empty lookup says so.
+
+Filters narrow the search itself, not its results: `--tier human-reviewed` keeps looking
+until it finds a human-reviewed match, rather than running the query and then discarding
+whatever failed the filter.
+
 `search` results carry each hit's area (`dumps`, `drafts`, or `corpus`) and trust tier
 (§5.3) alongside its score, in both table and structured output, so a caller can tell how
 settled a match is without opening it. Ranking applies a soft trust-tier boost on top of
@@ -240,6 +258,16 @@ the index, and can be cited. What changes is that `okfctl status` reports each a
 on arrival, so leaving them there would bury whatever is actually rotting. Each inbox line
 always names its count and the age of its oldest entry, so nothing is hidden, only moved —
 and the two are never merged into one figure, since they are different backlogs.
+
+When the two areas together hold more than the corpus does, `okfctl status` adds a
+**Backlog** line saying so. Capture is automatic and every step after it is a person
+invoking a workflow, so a bundle wired this way does not fail loudly when curation falls
+behind — it fills up, with each individual count looking reasonable. A bundle that is
+mostly unplaced is one `okf-recall` will read as leads rather than knowledge whatever the
+quality of what is in it, and that is worth naming once. It stays quiet until the ratio
+actually inverts *and* there is a real backlog behind it — a freshly scaffolded bundle with
+one capture in it is 100% unplaced and doing exactly the right thing — and it is never an
+attention-list entry.
 
 The spec names neither directory. Both are ours, and both are a convention: a bundle whose
 `dumps/` or `drafts/` holds ordinary concepts is still perfectly conformant.
@@ -348,6 +376,15 @@ with `-n`, additive, idempotent, never destructive, and removable with `--remove
 takes back both scopes, deletes files that existed only to hold what it installed, prunes
 the directories it created, and leaves your own settings and the bundle itself alone.
 
+**Removal is per bundle, and the shared half is only taken back by the last one out.**
+Curation skills belong to the bundle they were installed into; capture, recall and the hook
+are shared by every bundle on the machine. So `--remove` in one bundle deletes that
+bundle's curation skills and, if another bundle is still wired to that host, keeps the
+shared half and names the bundle still using it. Removing the last one takes everything
+back. `okfctl` records which bundles each host is wired to in its user config to tell these
+apart; a host wired before that record existed has no other bundle it can name, so it
+removes in full as before.
+
 **Keeping an installed host current.** Every skill and hook changes as `okfctl` changes —
 `okfctl update [dir]` refreshes exactly the hosts already installed for that bundle
 (current skills, current commands, current hook config) without naming `--agent` again.
@@ -355,8 +392,11 @@ Detection is based on an artifact only an install creates (the distributed captu
 or the upserted instructions section), never on a config file's mere existence — a
 pre-existing `~/.claude/settings.json` from unrelated settings is never mistaken for an
 install. `update` preserves each hook host's currently-configured `--capture-every`
-interval by default; pass `--capture-every <n>` to apply a new one to every host it
-touches. It never installs a new host, never scaffolds bundle files, and never touches
+interval by default — read back from that host's own config, whose location the host's own
+adapter reports, so a newly-supported host cannot be left out of a lookup and silently
+reset to prompting every turn. A host whose config is missing or unreadable lands on the
+tool's default rather than on the most expensive setting there is. Pass
+`--capture-every <n>` to apply a new one to every host it touches. It never installs a new host, never scaffolds bundle files, and never touches
 registration — for adding a host, use `init --agent` instead.
 
 ```bash

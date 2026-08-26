@@ -357,7 +357,28 @@ YAML rides along because the `yaml` package is already a dependency for frontmat
 marginal cost of a second serializer was low enough not to defer it to a later change, unlike
 a feature that would have needed real design work of its own.
 
-## `search`: area, trust tier, and the ranking boost
+## `search`: two ways to ask
+
+`--match all` (the default) is a lookup — every term, falling back to the best partial
+overlap; `--match any` is a similarity question, ranked by how much overlaps. The mode
+existed internally before it was reachable, which meant the only way to ask the second kind
+of question was to not have it answered.
+
+The default is right when the caller knows the bundle's vocabulary and wrong when it does
+not, which is the usual reason to search at all. Measured on a real bundle: `CNPG Authentik
+primary restart` returns the entry that answers it at rank 1; `authentik database failover
+interruption` — the same question in the words someone would actually ask it — returns a
+different document and no sign the right one exists. `--match any` reaches it. Search is
+lexical, so a miss is weak evidence of absence, and an empty lookup names the loose mode
+rather than leaving the caller to conclude the bundle is silent.
+
+**Filters narrow the search, not its results.** Area, tier, type and tag are applied inside
+the cascade rather than to whatever it settled on. Applied afterwards, an ineligible
+document could end an attempt and take the whole query with it: `--tier human-reviewed`
+would come back empty while a human-reviewed concept that a looser attempt would have found
+sat right there — which is exactly the narrowing `okf-recall` recommends.
+
+### Area, trust tier, and the ranking boost
 
 Extends the `search` capability (see the `add-search-command` change this built on) with two
 things every consumer asked of ranked search over a corpus that mixes raw dumps, refined
@@ -405,6 +426,17 @@ never touched.
 
 The author's form survives: root-absolute stays root-absolute, relative is recomputed from
 the linking document's directory, and the fragment rides along untouched.
+
+**Both directions, not just inbound.** A relative link is measured from the directory the
+linking document sits in, so moving a document across a depth boundary breaks every one of
+its *own* relative links — `move drafts/x ops/runbooks/`, the path `okf-review` is told to
+use to empty the drafts inbox, wrote a concept whose links resolved before the move and not
+after. The same three rules apply going out: only links that already resolved are touched, a
+root-absolute target already addresses the bundle root and is left alone, and a bare
+`#fragment` addresses the document itself and travels with it. A link whose recomputed form
+is what is already written is not rewritten at all, so a same-depth move leaves the file
+byte-identical rather than churning it. `--dry-run` counts the outbound rewrites alongside
+the inbound ones.
 
 **`status`, `verified` and `stale_after` are left alone.** A relocated draft is still a
 draft; `promote` is still the act that says someone vouched for it. This is the same
@@ -559,6 +591,52 @@ carries scaffolding side effects that have no place in a refresh, and a flag tha
 which side effects a command has depending on what else is passed is the kind of implicit
 mode-switching this tool avoids everywhere else (`review`'s `--confirm`/`--outdated` are
 separate outcomes, not one command inferring which was meant).
+
+### Removal is per bundle
+
+Curation skills belong to the bundle they were installed into; capture, recall and the hook
+are shared by every bundle on the machine. `--remove` could not tell those apart, so
+removing a host in one bundle deleted the shared half out from under every other bundle
+wired to it — which then looked wired, with its curation skills still in place, and silently
+never captured again.
+
+So `okfctl` records which bundles each host is wired to, in its user config. Removal drops
+this bundle from that list and takes back the shared half only when the list is then empty;
+otherwise it removes this bundle's curation skills and names the bundle still holding the
+rest. A host wired before that record existed has no other bundle it can name, so it removes
+in full, as documented — the registry can only ever make removal *less* destructive than it
+was.
+
+The interval lookup had the same shape of bug: a host list in `update`, which `copilot` was
+never added to, so every refresh silently reset it to prompting on every turn. The config
+path now comes off the adapter that writes it, and a test asserts every hook-capable
+adapter reports one — the same reasoning as reading continuation support off the hook
+payload instead of a hardcoded host list.
+
+## The curation gap
+
+Capture is automatic — a hook fires in every repository — and every step after it (refine,
+move, review, promote) is a person invoking a workflow. Those two rates are not the same,
+and nothing in the design made the difference visible: each count looks reasonable on its
+own while the corpus fills with material `okf-recall` is bound to read as leads rather than
+knowledge. A bundle developed this way reached 79% unplaced, with one citable concept in it.
+
+Two changes, both small, both aimed at the ratio rather than at either count:
+
+- **`status` prints a Backlog line** when the holding areas together outweigh the corpus,
+  naming the verb that changes it. Quiet until the ratio inverts, for the same reason the
+  advisory tier stays narrow: a line that always prints is a line nobody reads. It is not
+  an attention-list entry — an unrefined dump is not rotting.
+- **`okf-capture` searches before it writes.** One search, to catch the case where the
+  bundle already holds the finding. A duplicate dump is not a tidy-up someone does later,
+  it is permanent backlog, and two captures of one finding split the search results for it
+  so that both are harder to find than either alone.
+
+What was considered and not done: gating the hook on transcript size or duration. The
+payload carries `transcript_path`, so a cheap "did this turn do enough to be worth asking
+about" test is possible in principle — but the transcript format is the host's, undocumented,
+and differs per host, and a hook that misreads one fails toward either silence or noise in
+every repository at once. `--capture-every` remains the knob.
 
 ## `promote`
 

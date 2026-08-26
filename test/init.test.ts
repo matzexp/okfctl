@@ -2,13 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadBundle } from '../src/core/bundle.ts';
 import { checkBundle, countBy } from '../src/core/check.ts';
 import { runInit, runRegister } from '../src/commands/init.ts';
 import {
-  enclosingBundle, isBundleRoot, registeredBundle, requireBundleDir, resolveBundleDir,
+  enclosingBundle, isBundleRoot, readConfig, registeredBundle, requireBundleDir,
+  resolveBundleDir, wiredBundles, writeConfig,
 } from '../src/core/userconfig.ts';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/bundle', import.meta.url));
@@ -174,4 +175,82 @@ test('a bundle root is recognized by okf_version, or by index plus log', () => {
   assert.equal(isBundleRoot(legacy), false);
   writeFileSync(join(legacy, 'log.md'), '# Log\n');
   assert.equal(isBundleRoot(legacy), true);
+});
+
+/** Capture stdout so a report line can be asserted on. */
+function captured(run: () => number): { code: number; out: string } {
+  const log = console.log;
+  const error = console.error;
+  let out = '';
+  console.log = (...args: unknown[]) => void (out += `${args.join(' ')}\n`);
+  console.error = () => {};
+  try {
+    return { code: run(), out };
+  } finally {
+    console.log = log;
+    console.error = error;
+  }
+}
+
+/** Two bundles wired to one host, which is where the shared half matters. */
+function twoWired(): { home: string; a: string; b: string } {
+  const home = isolate();
+  const a = mkdtempSync(join(tmpdir(), 'okfctl-kb-a-'));
+  const b = mkdtempSync(join(tmpdir(), 'okfctl-kb-b-'));
+  quiet(() => runInit(a, { agent: ['claude-code'], home, command: 'okfctl' }));
+  quiet(() => runInit(b, { agent: ['claude-code'], home, command: 'okfctl' }));
+  return { home, a, b };
+}
+
+test('removing one bundle leaves the shared half for the bundles still wired', () => {
+  const { home, a, b } = twoWired();
+  const curation = (bundle: string) => join(bundle, '.claude/skills/okf-triage/SKILL.md');
+  const capture = join(home, '.claude/skills/okf-capture/SKILL.md');
+  const settings = join(home, '.claude/settings.json');
+
+  quiet(() => runInit(a, { agent: ['claude-code'], remove: true, home, command: 'okfctl' }));
+  assert.ok(!existsSync(curation(a)), 'the removed bundle loses its own curation skills');
+  assert.ok(existsSync(curation(b)), 'the other bundle keeps its own');
+  assert.ok(existsSync(capture), 'capture is shared and stays while another bundle uses it');
+  assert.ok(existsSync(settings), 'and so does the hook that drives it');
+
+  quiet(() => runInit(b, { agent: ['claude-code'], remove: true, home, command: 'okfctl' }));
+  assert.ok(!existsSync(curation(b)));
+  assert.ok(!existsSync(capture), 'the last bundle out takes the shared half with it');
+  assert.ok(!existsSync(settings));
+});
+
+test('a removal that keeps the shared half says which bundle still holds it', () => {
+  const { home, a, b } = twoWired();
+  const { out } = captured(() =>
+    runInit(a, { agent: ['claude-code'], remove: true, home, command: 'okfctl' }));
+  assert.ok(out.includes(b), 'the bundle still using it is named, not just implied');
+});
+
+test('an install predating the wiring registry still removes in full', () => {
+  const home = isolate();
+  const bundle = mkdtempSync(join(tmpdir(), 'okfctl-kb-'));
+  quiet(() => runInit(bundle, { agent: ['claude-code'], home, command: 'okfctl' }));
+
+  // What an install made before the registry existed looks like.
+  const config = readConfig();
+  delete config.wiredBundles;
+  writeConfig(config);
+
+  quiet(() => runInit(bundle, { agent: ['claude-code'], remove: true, home, command: 'okfctl' }));
+  assert.ok(!existsSync(join(home, '.claude/skills/okf-capture/SKILL.md')),
+    'with no other bundle we can name, the documented full removal stands');
+});
+
+test('a dry-run removal records nothing in the wiring registry', () => {
+  const home = isolate();
+  const bundle = mkdtempSync(join(tmpdir(), 'okfctl-kb-'));
+  quiet(() => runInit(bundle, { agent: ['claude-code'], home, command: 'okfctl' }));
+  assert.deepEqual(wiredBundles('claude-code'), [resolve(bundle)]);
+
+  quiet(() => runInit(bundle, {
+    agent: ['claude-code'], remove: true, dryRun: true, home, command: 'okfctl',
+  }));
+  assert.deepEqual(wiredBundles('claude-code'), [resolve(bundle)],
+    'a preview leaves the registry exactly as it found it');
 });

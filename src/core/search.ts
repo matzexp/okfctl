@@ -205,11 +205,57 @@ export function search(bundle: Bundle, query: string, options: SearchOptions = {
       { ...base, combineWith: 'OR' as const, fuzzy: 0.2 },
     ];
 
-  let results: ReturnType<typeof index.search> = [];
+  const wanted = {
+    areas: new Set(options.areas ?? []),
+    tiers: new Set(options.tiers ?? []),
+    types: new Set((options.types ?? []).map((type) => type.toLowerCase())),
+    tags: (options.tags ?? []).map((tag) => tag.toLowerCase()),
+  };
+
+  /**
+   * Whether a concept survives the caller's filters. Applied *inside* the
+   * cascade rather than to whatever the cascade settled on: filtering
+   * afterwards let an ineligible document end an attempt, so a narrowed search
+   * could come back empty while a document that both matched a looser attempt
+   * and passed the filters sat right there. `--tier human-reviewed` has to
+   * narrow the search, not truncate its results.
+   */
+  const eligible = (concept: Concept, tier: TrustTier, where: SearchArea): boolean => {
+    if (wanted.areas.size > 0 && !wanted.areas.has(where)) return false;
+    if (wanted.tiers.size > 0 && !wanted.tiers.has(tier)) return false;
+    if (wanted.types.size > 0) {
+      const type = typeof concept.data.type === 'string' ? concept.data.type.toLowerCase() : '';
+      if (!wanted.types.has(type)) return false;
+    }
+    if (wanted.tags.length > 0) {
+      const carried = new Set(tagsOf(concept));
+      if (!wanted.tags.every((tag) => carried.has(tag))) return false;
+    }
+    return true;
+  };
+
+  let hits: SearchHit[] = [];
   let partial = false;
   for (const [attempt, params] of attempts.entries()) {
-    results = index.search(subject, params);
-    if (results.length > 0) {
+    hits = index.search(subject, params).flatMap((result): SearchHit[] => {
+      const concept = byId.get(String(result.id));
+      if (!concept) return [];
+
+      const tier = health(concept, today).tier;
+      const where = area(concept.id, dumpsDir, draftsDir);
+      if (!eligible(concept, tier, where)) return [];
+
+      const terms = result.terms ?? [];
+      return [{
+        concept,
+        score: result.score * TRUST_BOOST[tier],
+        area: where,
+        tier,
+        terms,
+        snippet: snippetFor(concept.body, terms),
+      }];
+    });
+    if (hits.length > 0) {
       // Only the lookup cascade's last resort is a partial answer. An `any`
       // search asked for partial overlap and gets it whole.
       partial = options.match !== 'any' && attempt === attempts.length - 1;
@@ -223,44 +269,9 @@ export function search(bundle: Bundle, query: string, options: SearchOptions = {
   // worse than a short honest answer. A document matching three of four terms is
   // a real near-miss; one matching only "harbor" is noise wearing its clothes.
   if (partial) {
-    const best = Math.max(...results.map((result) => (result.terms ?? []).length));
-    results = results.filter((result) => (result.terms ?? []).length >= best);
+    const best = Math.max(...hits.map((hit) => hit.terms.length));
+    hits = hits.filter((hit) => hit.terms.length >= best);
   }
-
-  const wanted = {
-    areas: new Set(options.areas ?? []),
-    tiers: new Set(options.tiers ?? []),
-    types: new Set((options.types ?? []).map((type) => type.toLowerCase())),
-    tags: (options.tags ?? []).map((tag) => tag.toLowerCase()),
-  };
-
-  const hits = results.flatMap((result): SearchHit[] => {
-    const concept = byId.get(String(result.id));
-    if (!concept) return [];
-
-    const tier = health(concept, today).tier;
-    const where = area(concept.id, dumpsDir, draftsDir);
-    if (wanted.areas.size > 0 && !wanted.areas.has(where)) return [];
-    if (wanted.tiers.size > 0 && !wanted.tiers.has(tier)) return [];
-    if (wanted.types.size > 0) {
-      const type = typeof concept.data.type === 'string' ? concept.data.type.toLowerCase() : '';
-      if (!wanted.types.has(type)) return [];
-    }
-    if (wanted.tags.length > 0) {
-      const carried = new Set(tagsOf(concept));
-      if (!wanted.tags.every((tag) => carried.has(tag))) return [];
-    }
-
-    const terms = result.terms ?? [];
-    return [{
-      concept,
-      score: result.score * TRUST_BOOST[tier],
-      area: where,
-      tier,
-      terms,
-      snippet: snippetFor(concept.body, terms),
-    }];
-  });
 
   // MiniSearch returns results ordered by its own score; the trust boost can
   // reorder near-ties, so re-sort on the boosted score rather than trust the

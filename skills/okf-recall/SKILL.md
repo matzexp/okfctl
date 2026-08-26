@@ -40,6 +40,25 @@ known. It never writes.
    Try more than one query if the first turns up nothing — a different phrasing, a
    component name instead of a symptom, or vice versa.
 
+   **If a search returns nothing, or nothing that looks like an answer, retry it loosely
+   before concluding the bundle is silent:**
+
+   ```bash
+   okfctl search "<query>" --match any
+   ```
+
+   The default is a lookup: it wants documents carrying *every* term, and falls back to the
+   best partial overlap. That is right when you know the bundle's words for something and
+   wrong when you do not — and not knowing them is the usual reason to be searching. A
+   question phrased the way you would ask a colleague ("why does authentik go down during a
+   database failover") can miss the entry that answers it, because the entry is titled in
+   the vocabulary of the system ("CNPG primary restart briefly interrupts Authentik").
+   `--match any` ranks by overlap instead of requiring it, which is what finds that entry.
+
+   Search is lexical, not semantic: nothing here matches on meaning. So a miss is weak
+   evidence of absence, and two phrasings plus `--match any` is the cheapest way to make it
+   stronger before you spend real effort re-deriving something.
+
    Useful narrowing, once a first search shows what is there:
 
    ```bash
@@ -95,6 +114,8 @@ known. It never writes.
    If a result answers the question, use it and say where it came from. If nothing
    relevant turns up, say so in one line and proceed with the investigation normally —
    an empty search is not a problem to report at length, just a fact to note in passing.
+   Say which phrasings you tried, and whether `--match any` was among them: "nothing on
+   that" is worth more to the user when it names what was actually asked.
 
 **Guardrails**
 - Recall never writes. If a search turns up a gap worth filling, that is a separate act —

@@ -42,6 +42,13 @@ export interface InstallContext {
    * repository happened to produce it.
    */
   bundle: string;
+  /**
+   * On removal: another bundle is still wired to this host, so the user-scope
+   * half — capture, recall, the hook, the instructions section — stays and only
+   * this bundle's curation skills go. The shared half is not this bundle's to
+   * take away while someone else is using it.
+   */
+  keepShared?: boolean;
 }
 
 export interface Adapter {
@@ -56,6 +63,16 @@ export interface Adapter {
    * existence, which frequently predates and has nothing to do with `okfctl`.
    */
   isInstalled(context: InstallContext): boolean;
+  /**
+   * Where this host's hook config lives, for reading back the interval an
+   * install left there. Null for a host with no event hook.
+   *
+   * It belongs on the adapter rather than in a lookup `update` keeps: a host
+   * added here but missed there silently loses its interval on every refresh,
+   * which is exactly what happened to `copilot`. The adapter that writes the
+   * file is the one thing that cannot forget where it put it.
+   */
+  hookConfigPath(context: InstallContext): string | null;
 }
 
 /** Apply a plan. Callers preview first; this only writes. */

@@ -240,3 +240,48 @@ test('a young inbox says nothing about neglect', () => {
   const { out } = captured(() => runStatus({ bundle: root }));
   assert.doesNotMatch(out, /over \d+d/);
 });
+
+test('the backlog line stays quiet until intake has outrun curation', () => {
+  const root = sandbox();
+  // The fixture has more placed concepts than held ones.
+  const quiet = captured(() => runStatus({ bundle: root }));
+  assert.ok(!/Backlog/.test(quiet.out),
+    'a bundle whose corpus outweighs its holding areas says nothing');
+
+  // Tip the ratio the way an automatic capture path does.
+  for (let n = 2; n <= 12; n++) {
+    writeFileSync(
+      join(root, `dumps/2026-08-22-abcdefgh-${n}.md`),
+      `---\ntype: Note\ntitle: dump ${n}\n---\n\nbody\n`,
+    );
+  }
+  const { out } = captured(() => runStatus({ bundle: root }));
+  assert.match(out, /Backlog/);
+  assert.match(out, /unplaced/);
+  assert.match(out, /okfctl refine/, 'it names the verb that changes the number');
+});
+
+test('the backlog line is a summary signal, not an attention-list entry', () => {
+  const root = sandbox();
+  for (let n = 2; n <= 12; n++) {
+    writeFileSync(
+      join(root, `dumps/2026-08-22-abcdefgh-${n}.md`),
+      `---\ntype: Note\ntitle: dump ${n}\n---\n\nbody\n`,
+    );
+  }
+  const { out } = captured(() => runStatus({ bundle: root }));
+  const attention = out.slice(out.indexOf('Needs attention'));
+  assert.ok(!/2026-08-22-abcdefgh-5/.test(attention),
+    'holding-area entries still report through their inbox, not as things that are rotting');
+});
+
+test('a young bundle doing the right thing gets no backlog line', () => {
+  // init, one capture, one refine: entirely unplaced, and entirely fine.
+  const root = mkdtempSync(join(tmpdir(), 'okfctl-young-'));
+  mkdirSync(join(root, 'dumps'), { recursive: true });
+  writeFileSync(join(root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Young\n');
+  writeFileSync(join(root, 'dumps/one.md'), '---\ntype: Note\ntitle: One\n---\n\nbody\n');
+
+  const { out } = captured(() => runStatus({ bundle: root }));
+  assert.ok(!/Backlog/.test(out), 'the ratio is true of every bundle on its first day');
+});

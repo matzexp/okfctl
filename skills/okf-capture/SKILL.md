@@ -50,7 +50,36 @@ placement you already know. This skill is for knowledge you have and cannot yet 
    not confident is true. If there is no policy file, proceed on step 1's judgment alone —
    its absence is not a problem to fix from this workflow.
 
-4. **Write the summary, not the transcript**
+4. **Check whether the bundle already holds this**
+
+   ```bash
+   okfctl search "<the finding, in a few words>" --snippet
+   okfctl search "<the finding, in a few words>" --match any   # if the first found nothing
+   ```
+
+   One search, before writing. Capture runs automatically and everything after it — refine,
+   move, review, promote — waits on a person, so a duplicate dump is not a tidy-up someone
+   does later, it is a permanent addition to a backlog that only grows. Two captures of the
+   same finding also split the search results for it, which makes both harder to find than
+   either alone would have been.
+
+   Act on what comes back:
+
+   - **Nothing relevant** → continue to step 5.
+   - **A dumps-area entry saying the same thing** → say so and write nothing, unless this
+     session establishes something the existing one does not. If it does, say what is new
+     in one line and capture only that, referring to the existing id.
+   - **A drafts-area entry this extends** → this is `okf-refine --extend --append`
+     territory, not a new capture. Name the entry and offer that instead; do not run it
+     from here.
+   - **A corpus concept that already covers it** → the bundle knows this. Say so and write
+     nothing. A corpus concept it *contradicts* is worth capturing, as a contradiction,
+     naming the concept it disagrees with — never edited in place from here.
+
+   This is `okf-recall`'s first step, run for a different reason: recall searches to avoid
+   re-deriving an answer, capture searches to avoid re-filing one.
+
+5. **Write the summary, not the transcript**
 
    A reader who was not in the session must be able to act on it without asking a follow-up
    question or re-deriving anything you already worked out. State what is true and why;
@@ -72,7 +101,7 @@ placement you already know. This skill is for knowledge you have and cannot yet 
    Length follows completeness — do not pad, and do not trim a caveat or a concrete number
    to hit a target length.
 
-5. **Capture it**
+6. **Capture it**
 
    ```bash
    okfctl capture --title "<what was established>" --by "<your producer id>" \
@@ -96,7 +125,7 @@ placement you already know. This skill is for knowledge you have and cannot yet 
 
    `--dry-run` shows the resolved path and frontmatter first.
 
-6. **Report**
+7. **Report**
 
    Name the concept id and its title, and say it is a draft awaiting review. The id is
    generated, so the title is the part a reader recognizes. Do not promote it, do not
@@ -109,6 +138,8 @@ placement you already know. This skill is for knowledge you have and cannot yet 
   identifier in a field other tools read is a false claim.
 - Never promote, move, or merge what you just captured. Review is a separate act by a
   person — `okf-review`.
+- Never capture a second copy of something the bundle already holds. Search first; a
+  duplicate dump is permanent backlog and splits the search results for the finding.
 - Write nothing rather than something you are not confident is true. A wrong concept in a
   bundle is worse than an absent one, because someone will act on it.
 - Bundle policy (`.okf/policy/`) can narrow or extend what counts as durable; it can never

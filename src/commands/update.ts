@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { ADAPTERS, installedInterval } from '../core/agents/hosts.ts';
-import { runHosts } from './init.ts';
+import { DEFAULT_CAPTURE_EVERY, runHosts } from './init.ts';
 import { dim, green, red } from '../core/term.ts';
 
 export interface UpdateOptions {
@@ -45,7 +45,12 @@ export function runUpdate(target: string, options: UpdateOptions): number {
   // previously-installed interval, read back from its own config.
   const byInterval = new Map<number, string[]>();
   for (const adapter of installed) {
-    const every = options.captureEvery ?? currentInterval(adapter.name, home) ?? 1;
+    const configPath = adapter.hookConfigPath({ command, every: 1, home, bundle });
+    // The tool's own default, not 1, when there is nothing to read back: a host
+    // whose config is absent or unreadable should land where a fresh install
+    // would, not on the most expensive setting there is.
+    const current = configPath ? installedInterval(configPath, adapter.name) : null;
+    const every = options.captureEvery ?? current ?? DEFAULT_CAPTURE_EVERY;
     const names = byInterval.get(every) ?? [];
     names.push(adapter.name);
     byInterval.set(every, names);
@@ -58,11 +63,4 @@ export function runUpdate(target: string, options: UpdateOptions): number {
 
   if (!options.dryRun) console.log(green('\nupdated'));
   return 0;
-}
-
-/** The interval currently installed for a hook-capable host, or null for one without hooks. */
-function currentInterval(host: string, home: string): number | null {
-  if (host === 'claude-code') return installedInterval(join(home, '.claude', 'settings.json'), host);
-  if (host === 'codex') return installedInterval(join(home, '.codex', 'hooks.json'), host);
-  return null;
 }

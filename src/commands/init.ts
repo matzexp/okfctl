@@ -7,7 +7,9 @@ import {
   CONTENT_POLICY_FILE, FIELD_POLICY_FILE, SOURCE_POLICY_FILE,
   contentPolicyTemplate, fieldPolicyTemplate, sourcePolicyTemplate,
 } from '../core/policy.ts';
-import { isBundleRoot, readConfig, registeredBundle, writeConfig } from '../core/userconfig.ts';
+import {
+  forgetWiring, isBundleRoot, readConfig, recordWiring, registeredBundle, wiredBundles, writeConfig,
+} from '../core/userconfig.ts';
 import { findAdapter, ADAPTERS } from '../core/agents/hosts.ts';
 import type { Plan } from '../core/agents/adapter.ts';
 import { bold, cyan, dim, green, red, yellow } from '../core/term.ts';
@@ -174,11 +176,24 @@ export function runHosts(
     bundle,
   };
 
+  // Which hosts still have another bundle wired to them. Removal takes back only
+  // this bundle's curation skills in that case: capture, recall and the hook are
+  // shared across every bundle on the machine, and stripping them on behalf of
+  // one bundle left the others looking wired and silently no longer capturing.
+  // `null` means nothing was ever recorded — an install predating the registry —
+  // where the documented full removal stays the answer, since there is no other
+  // bundle we can name.
+  const others = new Map<string, string[] | null>();
+  if (remove) {
+    for (const name of hosts) others.set(name, wiredBundles(name).filter((dir) => dir !== resolve(bundle)));
+  }
+
   const plans: Plan[] = [];
   for (const name of hosts) {
     try {
       const adapter = findAdapter(name);
-      plans.push(remove ? adapter.planRemoval(context) : adapter.plan(context));
+      const scoped = { ...context, keepShared: (others.get(name)?.length ?? 0) > 0 };
+      plans.push(remove ? adapter.planRemoval(scoped) : adapter.plan(context));
     } catch (error) {
       console.error(red((error as Error).message));
       return 1;
@@ -198,6 +213,10 @@ export function runHosts(
     // An adapter may not claim a wiring it does not perform.
     for (const gap of plan.unsupported) {
       console.log(`  ${yellow('note')} ${dim(gap)}`);
+    }
+    const remaining = others.get(plan.host);
+    if (remove && remaining && remaining.length > 0) {
+      console.log(`  ${dim(`keep   capture, recall and the hook: still wired to ${remaining.join(', ')}`)}`);
     }
     if (!remove) {
       const project = plan.edits.filter((e) => e.path.startsWith(resolve(context.bundle))).length;
@@ -230,6 +249,10 @@ export function runHosts(
       mkdirSync(join(edit.path, '..'), { recursive: true });
       writeFileSync(edit.path, edit.contents);
     }
+    // Recorded only once the writes landed, so the registry never claims a
+    // wiring that failed halfway.
+    if (remove) forgetWiring(plan.host, bundle);
+    else recordWiring(plan.host, bundle);
   }
   return 0;
 }

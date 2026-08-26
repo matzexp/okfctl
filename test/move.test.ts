@@ -289,3 +289,79 @@ test('a failed move leaves no log entry for the relocation it rolled back', () =
   assert.equal(readFileSync(source, 'utf8'), sourceBefore);
   assert.equal(existsSync(join(root, 'metrics/timeout-mitigation.md')), false);
 });
+
+test('the moved concept keeps its own relative links working across a depth change', () => {
+  const root = sandbox();
+  mkdirSync(join(root, 'drafts'), { recursive: true });
+  writeFileSync(join(root, 'drafts/entry.md'), [
+    '---', 'type: Runbook', 'title: Entry', 'status: draft', '---',
+    '',
+    'Relative: [revenue](../metrics/revenue.md#definition).',
+    'Root-absolute: [margin](/metrics/margin.md).',
+    'Self: [top](#entry).',
+    '',
+    '```sh',
+    'cat ../metrics/revenue.md',
+    '```',
+  ].join('\n'));
+
+  assert.equal(quiet(() => runMove('drafts/entry', 'ops/runbooks/', { bundle: root, by: BY })), 0);
+
+  const moved = readFileSync(join(root, 'ops/runbooks/entry.md'), 'utf8');
+  assert.match(moved, /\[revenue\]\(\.\.\/\.\.\/metrics\/revenue\.md#definition\)/,
+    'the relative target is recomputed from the new directory, fragment intact');
+  assert.match(moved, /\[margin\]\(\/metrics\/margin\.md\)/,
+    'a root-absolute target already addresses the bundle root and is untouched');
+  assert.match(moved, /\[top\]\(#entry\)/, 'a bare fragment travels with the document');
+  assert.match(moved, /cat \.\.\/metrics\/revenue\.md/,
+    'a path inside a code fence is prose, not a link');
+
+  const refs = conceptRefs(findConcept(loadBundle(root), 'ops/runbooks/entry'), { root });
+  assert.deepEqual(refs.links.filter((link) => link.state === 'unresolved'), [],
+    'nothing the concept pointed at before the move is broken after it');
+});
+
+test('a same-depth move leaves the moved body byte-identical', () => {
+  const root = sandbox();
+  mkdirSync(join(root, 'drafts'), { recursive: true });
+  const body = [
+    '---', 'type: Metric', 'title: Entry', 'status: draft', '---',
+    '', 'See [revenue](../metrics/revenue.md).',
+  ].join('\n');
+  writeFileSync(join(root, 'drafts/entry.md'), body);
+
+  assert.equal(quiet(() => runMove('drafts/entry', 'guides/', { bundle: root, by: BY })), 0);
+  assert.equal(readFileSync(join(root, 'guides/entry.md'), 'utf8'), body,
+    'a link that crossed nothing is not rewritten, so the file is not churned');
+});
+
+test('a move rolled back restores the body it had, not the recomputed one', () => {
+  const root = sandbox();
+  mkdirSync(join(root, 'drafts'), { recursive: true });
+  const body = [
+    '---', 'type: Metric', 'title: Entry', 'status: draft', '---',
+    '', 'See [revenue](../metrics/revenue.md).',
+  ].join('\n');
+  writeFileSync(join(root, 'drafts/entry.md'), body);
+
+  // An unwritable log is the failure that lands after the file has moved.
+  const log = join(root, 'log.md');
+  chmodSync(log, 0o444);
+  try {
+    assert.equal(quiet(() => runMove('drafts/entry', 'ops/runbooks/', { bundle: root, by: BY })), 1);
+  } finally {
+    chmodSync(log, 0o644);
+  }
+
+  assert.ok(!existsSync(join(root, 'ops/runbooks/entry.md')), 'the relocation was undone');
+  assert.equal(readFileSync(join(root, 'drafts/entry.md'), 'utf8'), body,
+    'the body is the one that belongs at the path the file is back at');
+});
+
+test('an actor that is not a SPEC 7 form is refused, and nothing moves', () => {
+  const root = sandbox();
+  const before = readFileSync(join(root, 'metrics/revenue.md'), 'utf8');
+  assert.equal(quiet(() => runMove('metrics/revenue', 'guides/', { bundle: root, by: 'matze' })), 1);
+  assert.ok(!existsSync(join(root, 'guides/revenue.md')));
+  assert.equal(readFileSync(join(root, 'metrics/revenue.md'), 'utf8'), before);
+});

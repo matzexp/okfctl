@@ -19,9 +19,13 @@ export interface SearchOptions {
   type?: string[];
   tag?: string[];
   snippet?: boolean;
+  match?: string;
   format?: string;
   json?: boolean;
 }
+
+/** How a multi-word query is combined. See `SearchOptions.match` in core/search. */
+export const MATCH_MODES = ['all', 'any'] as const;
 
 /** Enough to choose from without burying the caller in near-misses. */
 export const DEFAULT_LIMIT = 10;
@@ -51,10 +55,12 @@ export function runSearch(options: SearchOptions): number {
   let format;
   let areas: SearchArea[];
   let tiers: TrustTier[];
+  let match: 'all' | 'any';
   try {
     format = resolveFormat(options);
     areas = validated(options.area, SEARCH_AREAS, 'area');
     tiers = validated(options.tier, TRUST_TIERS, 'tier');
+    match = validated(options.match ? [options.match] : [], MATCH_MODES, 'match')[0] ?? 'all';
   } catch (error) {
     console.error((error as Error).message);
     return 1;
@@ -79,6 +85,7 @@ export function runSearch(options: SearchOptions): number {
     tiers,
     types: options.type,
     tags: options.tag,
+    match,
   });
   const shown = hits.slice(0, limit);
 
@@ -95,6 +102,12 @@ export function runSearch(options: SearchOptions): number {
   // bundle knows and the honest reply is "nothing about that".
   if (hits.length === 0) {
     console.log(dim('no matches'));
+    // A lookup that found nothing is exactly where the loose mode earns its
+    // keep: the caller's phrasing may simply not be the bundle's. Naming it
+    // here is what makes it reachable by someone who did not read --help.
+    if (match === 'all') {
+      console.log(dim('try `--match any` — it ranks by overlap, for a query phrased differently than the bundle'));
+    }
     return 0;
   }
 

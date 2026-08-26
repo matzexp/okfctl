@@ -286,6 +286,7 @@ program
   .option('--type <list>', 'only these concept types, compared case-insensitively', list)
   .option('--tag <list>', 'only concepts carrying every one of these tags', list)
   .option('--snippet', 'show a line of matching body text under each result')
+  .option('--match <mode>', 'all (default: a lookup, narrowing to documents carrying every term) or any (a similarity question, ranked by overlap)')
   .option('--format <fmt>', 'table (default), json, or yaml')
   .option('--json', 'shorthand for --format json')
   .action(function (this: Command, query: string, options) {

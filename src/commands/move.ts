@@ -2,9 +2,9 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writ
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { findConcept, loadBundle } from '../core/bundle.ts';
 import { serializeConcept } from '../core/concept.ts';
-import { isoDay } from '../core/lifecycle.ts';
+import { ACTOR_FORMS, isValidActor, isoDay } from '../core/lifecycle.ts';
 import { appendLogEntry, displayPath, nearestLog } from '../core/log.ts';
-import { applyLinkRewrites, inboundLinks, retargetLink } from '../core/refs.ts';
+import { applyLinkRewrites, inboundLinks, readLinkSpans, retargetLink } from '../core/refs.ts';
 import { regenerateIndexes } from './index-gen.ts';
 import { bold, cyan, dim, green, red } from '../core/term.ts';
 
@@ -34,6 +34,15 @@ export function runMove(from: string, to: string, options: MoveOptions): number 
   const by = options.by?.trim();
   if (!by) {
     console.error(red('a --by actor is required'));
+    console.error(dim(ACTOR_FORMS));
+    return 1;
+  }
+  // Every other writing verb validates the form (SPEC §7); this one only checked
+  // for emptiness, so `move` was the one way to get an unparseable actor into a
+  // log entry the rest of the tool treats as a provenance record.
+  if (!isValidActor(by)) {
+    console.error(red(`invalid actor "${by}"`));
+    console.error(dim(ACTOR_FORMS));
     return 1;
   }
 
@@ -96,6 +105,26 @@ export function runMove(from: string, to: string, options: MoveOptions): number 
     });
   }
 
+  // The moved document's *own* relative links are measured from the directory it
+  // sits in, so changing that directory breaks every one of them that crossed it.
+  // Carrying only the inbound half left `move drafts/x ops/runbooks/` — the path
+  // `okf-review` is told to use to empty the drafts inbox — writing a concept
+  // whose links resolved before the move and not after, with nothing reporting it
+  // until the next `refs` run. Root-absolute targets already address the bundle
+  // root and are left exactly as the author wrote them; a bare `#fragment`
+  // addresses the document itself and travels with it.
+  const outbound = readLinkSpans(source, { root: bundle.root })
+    .filter((span) => span.resolvesTo !== null && span.path !== '' && !span.path.startsWith('/'))
+    .map((span) => ({
+      span,
+      replacement: retargetLink(span, targetFile, bundle.root, span.resolvesTo!),
+    }))
+    // A link whose recomputed form is what is already written crossed nothing.
+    .filter((edit) => edit.replacement !== edit.span.target);
+  const movedBody = outbound.length > 0
+    ? applyLinkRewrites(source.body, outbound)
+    : source.body;
+
   const logFile = nearestLog(bundle.root, targetFile);
   const entry = `**Moved**: \`${source.id}\` to [${targetId}](/${newPath}) by ${by}${
     options.reason ? `. ${options.reason.replace(/\.$/, '')}` : ''
@@ -107,6 +136,9 @@ export function runMove(from: string, to: string, options: MoveOptions): number 
     console.log(`  ${dim(`rewrite ${links.length} link${links.length === 1 ? '' : 's'} in ${displayPath(bundle.root, file)}`)}`);
   }
   if (byFile.size === 0) console.log(`  ${dim('no inbound links to rewrite')}`);
+  if (outbound.length > 0) {
+    console.log(`  ${dim(`rewrite ${outbound.length} outbound link${outbound.length === 1 ? '' : 's'} in the moved file`)}`);
+  }
   if (!options.noLog) console.log(`  ${dim(`log: ${displayPath(bundle.root, logFile)}`)}`);
 
   const dirs = [dirname(source.id), dirname(targetId)]
@@ -134,6 +166,14 @@ export function runMove(from: string, to: string, options: MoveOptions): number 
     mkdirSync(dirname(targetFile), { recursive: true });
     renameSync(source.file, targetFile);
     moved = true;
+
+    if (outbound.length > 0) {
+      // Recorded against the source path, which is where rollback puts the file
+      // back before restoring contents — so an undone move leaves the body with
+      // the links it had, not the ones recomputed for a location it no longer has.
+      done.push({ file: source.file, previous: readFileSync(targetFile, 'utf8') });
+      writeFileSync(targetFile, serializeConcept({ ...source, body: movedBody }));
+    }
 
     if (!options.noLog) {
       // Staged like every other write, so a failure after this point does not

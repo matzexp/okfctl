@@ -32,6 +32,17 @@ export interface StatusOptions {
  */
 export const INBOX_NEGLECTED_DAYS = 30;
 
+/**
+ * How many unplaced entries there have to be before the backlog line speaks.
+ *
+ * The ratio alone is true of every bundle on its first day — `init`, one capture,
+ * and the corpus is empty by construction — and a signal that fires on a bundle
+ * doing exactly the right thing is one nobody reads by the time it matters.
+ * Below this, a single refine session clears the whole holding area, which is
+ * not the failure this is watching for.
+ */
+export const BACKLOG_FLOOR = 10;
+
 interface Row extends Health {
   id: string;
   title: string;
@@ -116,6 +127,7 @@ export function runStatus(options: StatusOptions): number {
     printSummary(rows);
     printInbox(rows, 'inDumps', dumpsDir);
     printInbox(rows, 'inDrafts', draftsDir);
+    printBacklog(rows);
 
     // Every concept in either inbox is draft and unverified on arrival, so
     // leaving them in the attention list would bury whatever is actually
@@ -204,6 +216,35 @@ function printInbox(rows: Row[], key: 'inDumps' | 'inDrafts', dir: string, today
     dim(key === 'inDumps' ? 'Dumps' : 'Drafts'),
     `${line}${note}`,
   ]]));
+}
+
+/**
+ * Say so when intake has outrun curation — when the two holding areas together
+ * hold more than the corpus does.
+ *
+ * The inbox lines above report each backlog's size honestly and still let this
+ * go unnoticed, because a bundle where capture is automatic and every step after
+ * it is a person invoking a workflow does not fail loudly: it fills up. And a
+ * bundle that is mostly unplaced is one `okf-recall` is bound to read as leads
+ * rather than knowledge, whatever the quality of what is in it — so the counts
+ * being individually fine is exactly how the ratio goes unremarked.
+ *
+ * It stays quiet until the ratio actually inverts, for the same reason `check`
+ * keeps its advisory tier narrow: a line that always prints is a line nobody
+ * reads. Not an error, not part of the attention list — a fact about the shape
+ * of the bundle, printed once, naming the verb that changes it.
+ */
+function printBacklog(rows: Row[]): void {
+  const unplaced = rows.filter((row) => row.inDumps || row.inDrafts).length;
+  const placed = rows.filter((row) => !row.inDumps && !row.inDrafts).length;
+  if (unplaced < BACKLOG_FLOOR || unplaced <= placed) return;
+
+  const share = Math.round((unplaced / rows.length) * 100);
+  console.log(table([[
+    dim('Backlog'),
+    `${yellow(`${unplaced} unplaced`)} ${dim(`of ${rows.length} (${share}%), against ${placed} placed`)}`,
+  ]]));
+  console.log(`  ${dim('capture is automatic and every step after it is not; `okfctl refine` empties the dumps inbox, `okfctl move` the drafts one')}`);
 }
 
 function printSummary(rows: Row[]): void {

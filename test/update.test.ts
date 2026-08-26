@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInit } from '../src/commands/init.ts';
 import { runUpdate } from '../src/commands/update.ts';
+import { DEFAULT_CAPTURE_EVERY } from '../src/commands/init.ts';
+import { ADAPTERS, installedInterval } from '../src/core/agents/hosts.ts';
 import { readSkill } from '../src/core/agents/sources.ts';
 import { registeredBundle } from '../src/core/userconfig.ts';
 
@@ -140,4 +142,41 @@ test('update never touches registration', () => {
   assert.equal(registeredBundle(), null);
   quiet(() => runUpdate(bundle, { home, command: '/usr/bin/okfctl' }));
   assert.equal(registeredBundle(), null);
+});
+
+test('every hook-capable host keeps its own interval, copilot included', () => {
+  for (const host of ['claude-code', 'codex', 'copilot']) {
+    const { home, bundle } = isolate();
+    quiet(() => runInit(bundle, { agent: [host], captureEvery: 7, home, command: 'okfctl' }));
+    quiet(() => runUpdate(bundle, { home, command: 'okfctl' }));
+
+    const adapter = ADAPTERS.find((a) => a.name === host)!;
+    const configPath = adapter.hookConfigPath({ command: 'okfctl', every: 1, home, bundle })!;
+    assert.equal(installedInterval(configPath, host), 7,
+      `${host} lost the interval it was installed with`);
+  }
+});
+
+test('every hook-capable adapter says where its hook config lives', () => {
+  // The lookup this replaced lived in `update` and silently omitted copilot, so
+  // a host added to ADAPTERS is asked here rather than trusted to be remembered.
+  for (const adapter of ADAPTERS) {
+    const context = { command: 'okfctl', every: 1, home: '/home/x', bundle: '/b' };
+    const path = adapter.hookConfigPath(context);
+    assert.equal(path !== null, adapter.hook,
+      `${adapter.name}: a hook host must name a config path, and a hookless one must not`);
+  }
+});
+
+test('an unreadable interval falls back to the tool default, not to every turn', () => {
+  const { home, bundle } = isolate();
+  quiet(() => runInit(bundle, { agent: ['claude-code'], captureEvery: 7, home, command: 'okfctl' }));
+
+  // The install is still detected by its skills; only the config is gone.
+  rmSync(join(home, '.claude', 'settings.json'));
+  quiet(() => runUpdate(bundle, { home, command: 'okfctl' }));
+
+  const settings = readFileSync(join(home, '.claude', 'settings.json'), 'utf8');
+  assert.match(settings, new RegExp(`--every ${DEFAULT_CAPTURE_EVERY}`),
+    'a host with nothing to read back lands where a fresh install would');
 });

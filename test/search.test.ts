@@ -344,3 +344,79 @@ test('--snippet prints the matching line under the result', () => {
   assert.ok(lines.some((line) => /fiscal/i.test(line) && /^\s{2}/.test(line)),
     'an indented context line is printed');
 });
+
+test('a filter narrows the cascade rather than truncating its result', () => {
+  const root = mkdtempSync(join(tmpdir(), 'okf-search-narrow-'));
+  mkdirSync(join(root, 'dumps'), { recursive: true });
+  mkdirSync(join(root, 'decisions'), { recursive: true });
+  writeFileSync(join(root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Narrow\n');
+  // Carries every term, so it wins the exact-AND pass and ends the cascade.
+  writeFileSync(join(root, 'dumps', 'raw.md'), [
+    '---', 'type: Note', 'title: gateway timeout upstream envoy raised note', 'status: draft', '---',
+    '', 'gateway timeout upstream envoy raised',
+  ].join('\n'));
+  // Carries most of them, so only a looser pass reaches it.
+  writeFileSync(join(root, 'decisions', 'gw.md'), [
+    '---', 'type: Decision', 'title: Gateway timeout tuning',
+    'verified: [{ by: "human:me", at: "2026-01-01" }]', '---',
+    '', 'The envoy gateway upstream request timeout was raised.',
+  ].join('\n'));
+
+  const bundle = loadBundle(root);
+  const query = 'gateway timeout upstream envoy raised note';
+  assert.deepEqual(search(bundle, query).map((hit) => hit.concept.id), ['dumps/raw'],
+    'unfiltered, the exact match is the whole answer');
+
+  assert.deepEqual(
+    search(bundle, query, { areas: ['corpus'] }).map((hit) => hit.concept.id),
+    ['decisions/gw'],
+    'filtering to the corpus keeps searching rather than reporting the bundle silent',
+  );
+  assert.deepEqual(
+    search(bundle, query, { tiers: ['human-reviewed'] }).map((hit) => hit.concept.id),
+    ['decisions/gw'],
+    'the same holds for the trust tier okf-recall reaches for',
+  );
+});
+
+test('--match any ranks by overlap instead of requiring every term', () => {
+  const root = mkdtempSync(join(tmpdir(), 'okf-search-any-'));
+  writeFileSync(join(root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Any\n');
+  // The document that actually answers the question, in the bundle's vocabulary.
+  writeFileSync(join(root, 'cnpg.md'), [
+    '---', 'type: Note', 'title: CNPG primary restart briefly interrupts Authentik', '---',
+    '', 'A primary restart interrupts the session store.',
+  ].join('\n'));
+  // A neighbour carrying more of the query's literal words, and the wrong answer.
+  writeFileSync(join(root, 'headroom.md'), [
+    '---', 'type: Note', 'title: Authentik database failover headroom planning', '---',
+    '', 'Worker headroom during a database failover.',
+  ].join('\n'));
+
+  const bundle = loadBundle(root);
+  const query = 'authentik database failover interruption';
+
+  const lookup = search(bundle, query).map((h) => h.concept.id);
+  assert.deepEqual(lookup, ['headroom'],
+    'the best partial overlap wins, and the document that answers the question is not in it');
+
+  const loose = search(bundle, query, { match: 'any' }).map((h) => h.concept.id);
+  assert.ok(loose.includes('cnpg'),
+    'the similarity question reaches the right document even phrased in the searcher\'s words');
+});
+
+test('an unknown --match mode is refused, and an empty lookup names the loose one', () => {
+  const bad = captured(() => runSearch({ bundle: FIXTURE, query: 'x', match: 'sideways' }));
+  assert.equal(bad.code, 1);
+
+  const { code, lines } = captured(() =>
+    runSearch({ bundle: FIXTURE, query: 'zzzznotawordanywhere' }));
+  assert.equal(code, 0);
+  assert.ok(lines.some((line) => line.includes('--match any')),
+    'the escape hatch is named where a caller who found nothing will see it');
+
+  const loose = captured(() =>
+    runSearch({ bundle: FIXTURE, query: 'zzzznotawordanywhere', match: 'any' }));
+  assert.ok(!loose.lines.some((line) => line.includes('--match any')),
+    'and not suggested to a caller already using it');
+});

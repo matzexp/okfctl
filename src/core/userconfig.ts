@@ -15,6 +15,16 @@ import { dirname, join, resolve } from 'node:path';
 export interface UserConfig {
   /** Absolute path to the registered bundle, when one has been registered. */
   registeredBundle?: string;
+  /**
+   * Which bundles each host has been wired to, host name to bundle roots.
+   *
+   * Curation skills install per bundle while capture, recall and the hook are
+   * shared across every bundle on the machine — so removal has to tell "the last
+   * bundle using this host" from "one of several". Without this it could not,
+   * and `--remove` in one bundle silently stopped capture working for every
+   * other one, leaving those bundles looking wired and no longer capturing.
+   */
+  wiredBundles?: Record<string, string[]>;
 }
 
 export function configDir(): string {
@@ -175,4 +185,48 @@ export function pruneSessions(maxAgeMs = 24 * 60 * 60 * 1000, now = Date.now()):
       // Pruning is housekeeping; it may never be the reason a hook fails.
     }
   }
+}
+
+// --- host wiring registry ---------------------------------------------------
+
+/** Bundle roots this host is currently wired to, as recorded by `init --agent`. */
+export function wiredBundles(host: string): string[] {
+  const all = readConfig().wiredBundles ?? {};
+  const recorded = all[host];
+  return Array.isArray(recorded) ? recorded.filter((entry) => typeof entry === 'string') : [];
+}
+
+/** Record that `host` is wired to `bundle`. Idempotent. */
+export function recordWiring(host: string, bundle: string): void {
+  const root = resolve(bundle);
+  const current = wiredBundles(host);
+  if (current.includes(root)) return;
+  const config = readConfig();
+  writeConfig({
+    ...config,
+    wiredBundles: { ...(config.wiredBundles ?? {}), [host]: [...current, root] },
+  });
+}
+
+/**
+ * Forget that `host` is wired to `bundle`, and report the bundles that remain.
+ * `null` when nothing was ever recorded for this host — which is not the same as
+ * an empty list: an install predating this registry leaves no record, and the
+ * caller has to treat "we do not know" differently from "we know there are none".
+ */
+export function forgetWiring(host: string, bundle: string): string[] | null {
+  const config = readConfig();
+  const all = config.wiredBundles ?? {};
+  if (!Array.isArray(all[host])) return null;
+
+  const root = resolve(bundle);
+  const remaining = all[host].filter((entry) => entry !== root);
+  const next = { ...all };
+  if (remaining.length === 0) delete next[host];
+  else next[host] = remaining;
+
+  const updated: UserConfig = { ...config, wiredBundles: next };
+  if (Object.keys(next).length === 0) delete updated.wiredBundles;
+  writeConfig(updated);
+  return remaining;
 }

@@ -97,6 +97,11 @@ function removeFlatHook(config: FlatHookConfig, event: string): FlatHookConfig {
  * `--every ` in its command string — the only place the interval is recorded.
  * `null` when the config is absent, unparseable, or carries no entry of ours;
  * `update` falls back to the tool's default in that case rather than refusing.
+ *
+ * Both config shapes are read: the matcher-group nesting Claude Code and Codex
+ * use, and Copilot's flat one. Reading only the nested shape meant a Copilot
+ * install's interval was never found, so every `update` silently reset it to
+ * prompting on every turn.
  */
 export function installedInterval(configPath: string, host: string): number | null {
   const raw = readIfPresent(configPath);
@@ -112,13 +117,24 @@ export function installedInterval(configPath: string, host: string): number | nu
     : null;
   if (!hooks || typeof hooks !== 'object') return null;
 
-  for (const groups of Object.values(hooks as Record<string, unknown>)) {
-    if (!Array.isArray(groups)) continue;
-    for (const group of groups as Matcher[]) {
-      for (const entry of group.hooks ?? []) {
-        if (!isOurs(entry) || !entry.command.includes(` hook ${host} `)) continue;
-        const match = /--every (\d+)/.exec(entry.command);
-        if (match) return Number.parseInt(match[1], 10);
+  const intervalOf = (entry: unknown): number | null => {
+    if (!isOurs(entry)) return null;
+    const command = (entry as HookEntry).command;
+    if (!command.includes(` hook ${host} `)) return null;
+    const match = /--every (\d+)/.exec(command);
+    return match ? Number.parseInt(match[1], 10) : null;
+  };
+
+  for (const entries of Object.values(hooks as Record<string, unknown>)) {
+    if (!Array.isArray(entries)) continue;
+    for (const item of entries) {
+      // Flat: the entry sits directly in the event's array.
+      const direct = intervalOf(item);
+      if (direct !== null) return direct;
+      // Nested: the event's array holds matcher groups, each with its own hooks.
+      for (const entry of (item as Matcher)?.hooks ?? []) {
+        const found = intervalOf(entry);
+        if (found !== null) return found;
       }
     }
   }
@@ -166,6 +182,13 @@ function jsonHookPlan(
   extra: Edit[],
   remove: boolean,
 ): Plan {
+
+  // A removal that leaves another bundle wired takes back only this bundle's
+  // curation skills. The hook is shared across every bundle on the machine, so
+  // stripping it here would silently stop capture working for the others.
+  if (remove && context.keepShared) {
+    return { host, edits: extra, unsupported: [], hook: true };
+  }
   const current = readJson(configPath);
   if (current === null) {
     throw new Error(
@@ -226,6 +249,13 @@ function flatHookPlan(
   extra: Edit[],
   remove: boolean,
 ): Plan {
+
+  // A removal that leaves another bundle wired takes back only this bundle's
+  // curation skills. The hook is shared across every bundle on the machine, so
+  // stripping it here would silently stop capture working for the others.
+  if (remove && context.keepShared) {
+    return { host, edits: extra, unsupported: [], hook: true };
+  }
   const current = readJson(configPath);
   if (current === null) {
     throw new Error(
@@ -288,8 +318,11 @@ function skillEdits(context: InstallContext, layout: SkillLayout, remove: boolea
   const put = (path: string, contents: string, describe: string) =>
     edits.push(edit(path, remove ? null : contents, remove ? `delete ${describe}` : describe));
 
-  // Capture and recall must work from any repository, so they go to user scope.
-  for (const skill of USER_SCOPE_SKILLS) {
+  // Capture and recall must work from any repository, so they go to user scope —
+  // which is also why a removal that leaves another bundle wired leaves them
+  // alone: they are shared, and this bundle does not own them.
+  const shared = !(remove && context.keepShared);
+  for (const skill of shared ? USER_SCOPE_SKILLS : []) {
     put(
       at(context.home, [...layout.userSkills, skill, 'SKILL.md']),
       readSkill(skill),
@@ -412,6 +445,9 @@ const claudeCode: Adapter = {
   isInstalled(context) {
     return isWiredToThisBundle(context, CLAUDE_LAYOUT);
   },
+  hookConfigPath(context) {
+    return join(context.home, '.claude', 'settings.json');
+  },
 };
 
 /**
@@ -433,12 +469,17 @@ const codex: Adapter = {
   },
   planRemoval(context) {
     return jsonHookPlan('codex', join(context.home, '.codex', 'hooks.json'), ['Stop'], context, [
-      sectionRemoval(join(context.home, '.codex', 'AGENTS.md'), 'capture', 'the capture section in AGENTS.md'),
+      ...(context.keepShared
+        ? []
+        : [sectionRemoval(join(context.home, '.codex', 'AGENTS.md'), 'capture', 'the capture section in AGENTS.md')]),
       ...skillEdits(context, CODEX_LAYOUT, true),
     ], true);
   },
   isInstalled(context) {
     return isWiredToThisBundle(context, CODEX_LAYOUT);
+  },
+  hookConfigPath(context) {
+    return join(context.home, '.codex', 'hooks.json');
   },
 };
 
@@ -466,6 +507,11 @@ function instructionsOnly(name: string, file: (context: InstallContext) => strin
     },
     planRemoval(context) {
       const path = file(context);
+      // Everything this host has is user scope and shared, so a removal that
+      // leaves another bundle wired has nothing of its own to take back.
+      if (context.keepShared) {
+        return { host: name, edits: [], unsupported: [], hook: false };
+      }
       const existing = readIfPresent(path);
       let stripped = removeSection(existing, 'capture');
       stripped = removeSection(stripped, 'recall');
@@ -487,6 +533,9 @@ function instructionsOnly(name: string, file: (context: InstallContext) => strin
     isInstalled(context) {
       const existing = readIfPresent(file(context));
       return existing !== null && existing.includes(sectionMarkers('capture').start);
+    },
+    hookConfigPath() {
+      return null;
     },
   };
 }
@@ -533,7 +582,9 @@ const copilot: Adapter = {
       'Stop',
       context,
       [
-        sectionRemoval(instructions, 'capture', 'the capture section in copilot-instructions.md'),
+        ...(context.keepShared
+          ? []
+          : [sectionRemoval(instructions, 'capture', 'the capture section in copilot-instructions.md')]),
         ...skillEdits(context, COPILOT_LAYOUT, true),
       ],
       true,
@@ -541,6 +592,9 @@ const copilot: Adapter = {
   },
   isInstalled(context) {
     return isWiredToThisBundle(context, COPILOT_LAYOUT);
+  },
+  hookConfigPath(context) {
+    return join(context.home, '.copilot', 'hooks', 'okfctl.json');
   },
 };
 
