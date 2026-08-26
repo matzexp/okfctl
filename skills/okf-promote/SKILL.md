@@ -77,6 +77,19 @@ to be true.
 
    Then report: the concept, its new status and trust tier, the horizon, and the log entry.
 
+**Batching**
+
+`promote` takes several concepts at once, so a confirmed batch sharing one actor and one
+horizon is a single call:
+
+```bash
+okfctl --bundle <root> promote <a> <b> <c> --by human:<you> --stale-in 90d
+```
+
+Every concept still has to be read first, and the batch still has to be previewed and
+confirmed before the first write — batching is how the writes are issued, never a reason
+to promote something you have not read.
+
 **Guardrails**
 - Never edit frontmatter directly. `okfctl promote` writes `verified`, `status`, and
   `stale_after` together, with actor validation and a log entry.

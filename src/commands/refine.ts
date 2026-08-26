@@ -8,7 +8,7 @@ import { slugify } from './capture.ts';
 import { ACTOR_FORMS, generatedAt, isValidActor, isoDay } from '../core/lifecycle.ts';
 import { appendLogEntry, displayPath, nearestLog } from '../core/log.ts';
 import { regenerateIndexes } from './index-gen.ts';
-import { bold, cyan, dim, green, red } from '../core/term.ts';
+import { bold, cyan, dim, green, red, yellow } from '../core/term.ts';
 
 export interface RefineOptions {
   bundle: string;
@@ -26,6 +26,7 @@ export interface RefineOptions {
   stdin?: boolean;
   consume?: boolean;
   list?: boolean;
+  append?: boolean;
   dryRun?: boolean;
   noLog?: boolean;
 }
@@ -176,6 +177,26 @@ export function runRefine(sources: string[], options: RefineOptions): number {
     return 1;
   }
 
+  // How much of the entry's existing body the caller is about to drop. Reported,
+  // never refused: `--extend` replaces the file, so a shorter result is exactly
+  // what a deliberate rewrite looks like, and a tool that refuses one teaches the
+  // caller to reach for `--force` by reflex — which disarms the guard for the
+  // case it was built for. Naming the shrink leaves the judgment where it belongs
+  // while making an accidental drop visible instead of silent.
+  let shrunkBy = 0;
+  if (options.append) {
+    if (!target) {
+      console.error(red('--append only applies to --extend; a fresh entry has nothing to append to'));
+      return 1;
+    }
+    // The safe half of extending, and the reason the warning below can stay a
+    // warning: appending cannot lose prior content at all, so a caller who only
+    // means to add something has a way to say exactly that.
+    body = `${target.body.replace(/\n+$/, '')}\n\n${body.replace(/^\n+/, '')}`;
+  } else if (target) {
+    shrunkBy = target.body.trim().length - body.trim().length;
+  }
+
   // Extending merges into whatever the entry already cited — a prior citation is
   // never dropped, and a source already cited (by resource, the only globally
   // unique field) is not cited twice. Existing ids are left exactly as they are:
@@ -249,6 +270,11 @@ export function runRefine(sources: string[], options: RefineOptions): number {
   console.log(`  ${dim(`type: ${type}   status: draft`)}`);
   console.log(`  ${dim(`generated = { by: ${by}, at: ${at} }`)}`);
   console.log(`  ${dim(`sources: ${citations.map((c) => c.resource).join(', ')}`)}`);
+  if (options.append) console.log(`  ${dim('append: the existing body is kept and added to')}`);
+  if (shrunkBy > 0) {
+    console.log(`  ${yellow(`replacing: ${shrunkBy} fewer bytes of body than what is on disk`)}`);
+    console.log(`  ${dim('--extend replaces the file; pass --append to add to it instead')}`);
+  }
   if (consume) {
     for (const source of resolved) console.log(`  ${dim(`consume ${source.id}.md`)}`);
   }

@@ -12,6 +12,19 @@ import { findAdapter, ADAPTERS } from '../core/agents/hosts.ts';
 import type { Plan } from '../core/agents/adapter.ts';
 import { bold, cyan, dim, green, red, yellow } from '../core/term.ts';
 
+/**
+ * Turns between capture prompts, by default.
+ *
+ * Not 1. The prompt blocks the turn and costs a model round-trip every time it
+ * fires, and the honest answer to "did this turn produce durable knowledge" is
+ * usually no — so prompting on every turn spends the most on the case that
+ * yields the least, and teaches both the agent and the user to wave it through.
+ * A few turns is enough that a session which did establish something still gets
+ * asked before it ends. `--capture-every 1` is still there for anyone who wants
+ * the old behaviour.
+ */
+export const DEFAULT_CAPTURE_EVERY = 3;
+
 export interface InitOptions {
   dumpsDir?: string;
   draftsDir?: string;
@@ -39,7 +52,7 @@ export function runInit(target: string, options: InitOptions): number {
   const root = resolve(target || '.');
   const hosts = options.agent ?? [];
 
-  const every = options.captureEvery ?? 1;
+  const every = options.captureEvery ?? DEFAULT_CAPTURE_EVERY;
   if (!Number.isInteger(every) || every < 1) {
     console.error(red(`--capture-every must be a whole number of turns, at least 1 (got ${every})`));
     return 1;

@@ -14,6 +14,8 @@ they were drawn from rather than claiming first-hand authorship.
 
 This sits between `okf-capture` (dump arrives, unshaped, in the dumps area) and
 `okf-review` (a drafts-area entry gets placed in the corpus and eventually promoted).
+It is the workflow for knowledge that came *from a dump*; `okf-ingest` is the one for
+knowledge arriving with its type and placement already obvious and no dump behind it.
 Refining is the step where "what is this and what should it be called" gets answered — not
 before, when the capturing session may not know yet, and not later, when review is trying
 to also decide placement at the same time.
@@ -44,8 +46,11 @@ per entry.
 3. **Read the dumps inbox**
 
    ```bash
-   okfctl --bundle <root> status --dumps --json
+   okfctl --bundle <root> refine --list
    ```
+
+   (`okfctl status --dumps --json` reports the same inbox with the full record per entry,
+   when you want the frontmatter rather than a listing.)
 
    Work from this list, not from a guess at what looks stale. Read each dump's body along
    with its frontmatter — the title on a capture is a one-line summary, not necessarily the
@@ -67,6 +72,13 @@ per entry.
    On extension or contradiction, skip step 5's shape decision for this dump and go to
    step 6's extend/new-draft handling instead.
 
+   **When the answer is "unrelated", the search result is still worth keeping.** A
+   coincidental term match is not, but a genuinely adjacent concept usually is — link to
+   it from the body of the entry you write. Nothing else in the tooling creates links:
+   `okfctl refs` verifies the ones that exist, and `okfctl status --orphan` will later
+   count this entry as unreachable if nobody ever pointed at it. `okfctl related <id>` on
+   a near-neighbour shows what the new entry should sit beside.
+
 5. **Decide the shape, type, and title**
 
    The test: does this dump map to one drafts-area entry, several, or does it overlap
@@ -87,8 +99,15 @@ per entry.
    ```bash
    okfctl --bundle <root> refine <source...> \
      --type "<Type>" --title "<Title>" --by "<your producer id>" \
+     --description "<one line: what this establishes>" --tags "<component>,<topic>" \
      --stdin --dry-run
    ```
+
+   `--description` and `--tags` are optional to the CLI and expected here. They are what a
+   reader sees in search results and in `index.md` without opening the file, and they carry
+   the vocabulary a future search will actually use. Leaving them empty is the single
+   easiest way to write an entry nobody finds — see `refining-standard.md`'s findability
+   section.
 
    **An extension of an existing draft** (step 4 found a match that is itself still a
    draft): use `--extend` instead of `--type`/`--title`/a fresh id — it defaults both to
@@ -105,6 +124,14 @@ per entry.
    material), never just the new part. Never drop prior content or a prior citation; the
    dry-run preview shows the full resulting file specifically so you can check this before
    writing for real.
+
+   **When you are only adding, pass `--append` and supply just the new material.** It keeps
+   the existing body and adds to it, so prior content cannot be lost at all — which is the
+   whole failure mode the paragraph above is guarding against by hand. Reach for a
+   replacing `--extend` only when the existing text genuinely has to be rewritten, not
+   merely added to. A replacing extend that ends up shorter than what was there is
+   reported when it runs; that is information, not a refusal, and it is worth reading
+   before accepting the result.
 
    **An extension of, or a contradiction with, a corpus concept**: a promoted concept is
    never edited in place. Run an ordinary (non-`--extend`) refine citing the corpus concept
@@ -171,6 +198,12 @@ per entry.
 - Never invent an actor, a source, or claim a dump's findings as your own first-hand work.
 - `--type` and `--title` are never left to a provisional default on a fresh entry — decide
   them for real, or leave the dump in the dumps area and say why you could not.
+- Never write a fresh entry with no `--description` and no `--tags`. They are what makes it
+  findable, and an entry nobody finds is not knowledge the bundle has. If the dump does not
+  support a real one-line description, that is a reason to leave it unrefined, not a reason
+  to write an empty field.
+- Never invent an applicability boundary, a symptom string, or a caveat the dump does not
+  establish. An invented boundary is worse than an absent one: the next reader will trust it.
 - Never pass `--consume` before confirming every part of a dump's content has a drafts-area
   home. A partial split with `--consume` on an early call destroys the rest.
 - Never relocate a refined entry into the corpus or promote it. That is `okf-review` and
@@ -180,7 +213,8 @@ per entry.
   of `--extend`.
 - Never let `--extend`'s body drop content or a citation the existing entry already had.
   It replaces the whole file, so read the existing draft first and compose the complete
-  resulting body — always preview with `--dry-run` before writing for real.
+  resulting body — always preview with `--dry-run` before writing for real. When you are
+  only adding, `--append` removes this risk entirely and is the right flag.
 - Never resolve a contradiction yourself. Keep both statements, cited, explicitly flagged
   as conflicting, and leave the decision to a human in `okf-review`.
 - In gated mode, do not write before the user has approved — per item or, if they say so,

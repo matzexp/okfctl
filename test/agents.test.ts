@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runInit } from '../src/commands/init.ts';
+import { runInit , DEFAULT_CAPTURE_EVERY } from '../src/commands/init.ts';
 import { removeSection } from '../src/core/agents/adapter.ts';
 import { ADAPTERS, findAdapter, installedInterval } from '../src/core/agents/hosts.ts';
 import {
@@ -62,7 +62,7 @@ test('claude-code installs a Stop hook, an arming hook, a skill and a command', 
   assert.ok(config.hooks.Stop, 'Stop carries the prompt');
   assert.ok(config.hooks.UserPromptSubmit, 'UserPromptSubmit arms the session');
   assert.equal(config.hooks.SessionEnd, undefined, 'SessionEnd output cannot reach the model');
-  assert.match(config.hooks.Stop[0].hooks[0].command, /okfctl hook claude-code --every 1/);
+  assert.match(config.hooks.Stop[0].hooks[0].command, new RegExp(`okfctl hook claude-code --every ${DEFAULT_CAPTURE_EVERY}`));
 
   assert.ok(existsSync(join(home, '.claude', 'skills', 'okf-capture', 'SKILL.md')));
   assert.ok(existsSync(join(home, '.claude', 'commands', 'okf', 'capture.md')));
@@ -77,7 +77,7 @@ test('codex installs a Stop hook and AGENTS.md guidance, and needs no arming hoo
   const config = JSON.parse(readFileSync(codexHooks(home), 'utf8'));
   assert.ok(config.hooks.Stop);
   assert.equal(config.hooks.UserPromptSubmit, undefined, 'stop_hook_active is its own guard');
-  assert.match(config.hooks.Stop[0].hooks[0].command, /okfctl hook codex --every 1/);
+  assert.match(config.hooks.Stop[0].hooks[0].command, new RegExp(`okfctl hook codex --every ${DEFAULT_CAPTURE_EVERY}`));
   assert.match(readFileSync(join(home, '.codex', 'AGENTS.md'), 'utf8'), /okfctl capture/);
 });
 
@@ -218,7 +218,7 @@ test('copilot installs a Stop hook (flat entry shape), instructions and skills, 
   assert.equal(config.version, 1);
   assert.ok(Array.isArray(config.hooks.Stop), 'entries sit directly in the event array, no matcher-group wrapper');
   assert.equal(config.hooks.UserPromptSubmit, undefined, 'stop_hook_active is its own guard');
-  assert.match(config.hooks.Stop[0].command, /okfctl hook copilot --every 1/);
+  assert.match(config.hooks.Stop[0].command, new RegExp(`okfctl hook copilot --every ${DEFAULT_CAPTURE_EVERY}`));
   assert.equal(config.hooks.Stop[0].type, 'command');
 
   assert.match(readFileSync(copilotInstructions(home), 'utf8'), /okfctl capture/);

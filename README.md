@@ -304,6 +304,12 @@ your knowledge base and nowhere else.
 A bundle's `.claude/` and `.agents/` directories are dotfiles, which the bundle walk skips —
 so installing into a bundle adds no concepts and no conformance errors.
 
+**It prompts every third turn by default.** The prompt blocks and costs a model
+round-trip each time it fires, and the honest answer to "did this turn produce durable
+knowledge" is usually no — so prompting on every turn spends the most on the case that
+yields the least, and trains everyone to wave it through. `--capture-every 1` restores the
+old behaviour; a larger number is reasonable for a chatty repository.
+
 **The hook prompts; it does not capture.** A hook is a shell command with no model, so it
 cannot summarize a session. One that tried would write garbage under an agent's provenance,
 which is a false claim in the sense §7 cares about. It asks; the agent decides and writes.
@@ -323,7 +329,7 @@ turn completion and its output is injected into the model's context.
 **It holds the turn open.** Emitting context without blocking would surface the prompt only
 on the *next* turn, and if the session ends there the knowledge is gone. So it blocks — which
 costs a model round-trip every time it fires. `--capture-every <n>` is the knob; the default
-is every turn, and the installed interval is reported back to you.
+is every third turn, and the installed interval is reported back to you.
 
 It blocks by writing `{"decision": "block", "reason": …}` to stdout and **always exits 0**.
 Exit 2 blocks too, but it is the error channel — the host renders it as a hook failure, and
@@ -456,9 +462,9 @@ by name as `/okf:<name>`, or selected from its description.
 | Skill | For |
 |---|---|
 | `okf-capture` | A session produced something worth keeping. Summarizes it into the dumps area — or declines, which is the right answer more often than not. |
-| `okf-recall` | Before non-trivial investigation, or "have we seen this before?" Searches the bundle and weighs the answer by trust tier — a stable, human-reviewed hit is citable; anything else is a lead. Never writes. |
+| `okf-recall` | Before non-trivial investigation, or "have we seen this before?" Searches the bundle, follows `related` out of a good hit, and weighs the answer by trust tier — human-reviewed is citable, machine-confirmed is usable with the verifier named, everything else is a lead. Never writes. |
 | `okf-triage` | "How is this bundle doing?" Reports health, names the workflow each finding needs, and writes nothing. |
-| `okf-refine` | The dumps inbox. Turns raw dumps into typed, titled entries in the drafts area — one dump split into several, or several consolidated into one — citing what each drew from. Checks new dumps against existing knowledge first: extends a matching draft in place, or flags a contradiction for a human to resolve, rather than always writing a disconnected new entry. |
+| `okf-refine` | The dumps inbox. Turns raw dumps into typed, titled entries in the drafts area — one dump split into several, or several consolidated into one — citing what each drew from. Checks new dumps against existing knowledge first: extends a matching draft in place, or flags a contradiction for a human to resolve. Refining is not re-filing: the entry gets a description, tags, the literal symptom, an applicability boundary, and links to what it sits beside, because an entry nobody finds is not knowledge the bundle has. |
 | `okf-ingest` | New knowledge arriving. Matches the bundle's own types and placement, creates through `new`, then writes the body. |
 | `okf-promote` | A draft that has earned trust. Reads it first, establishes a real actor, sets a horizon. |
 | `okf-review` | The stale and drifted backlog, and the drafts inbox. Checks each concept against its `sources[]`, routes to the outcome it actually found, and empties drafts by relocating or merging them. |

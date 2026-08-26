@@ -13,6 +13,21 @@ Capture knowledge into an OKF bundle as a conformant concept.
 
 Frontmatter is created by `okfctl new`, never by hand. The body is yours to write.
 
+**Which of the three writing workflows this is.** All three end at a concept file, and the
+difference is what is already decided when you start:
+
+| | Type and placement | Trust | Use |
+|---|---|---|---|
+| `okf-capture` | undecided | unearned | A session produced something; nobody has filed it. Lands in `dumps/`. |
+| `okf-refine` | being decided now, *from an existing dump* | unearned | Working the dumps inbox. Lands in `drafts/`, citing what it drew from. |
+| `okf-ingest` | already known | unearned | Knowledge arriving with its home obvious. Lands in the corpus directly. |
+
+If the knowledge came from a dump, use `okf-refine` — it records the citation that keeps
+the provenance honest, which writing the same content through `new` would silently drop.
+Reach for `okf-ingest` when there is no dump to draw from and you already know the type
+and the directory. When in doubt between them, refine: an unnecessary citation costs
+nothing, and a missing one is a false first-hand claim (SPEC §7).
+
 **Steps**
 
 1. **Establish the bundle root**
@@ -54,7 +69,20 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
    Derive the id from the title in the bundle's existing style — usually kebab-case, no
    date prefix unless the directory already uses one (incident logs often do).
 
-3. **Preview before writing**
+3. **Carry the searchable surface**
+
+   A concept is only reusable if the next session finds it, and it will be searching with
+   the words it has then — an error string, a symptom, a component name — not the words
+   you have now. So `--description` and `--tags` are not optional decoration: they are what
+   a reader sees in `okfctl search` and `index.md` without opening the file, and they are
+   weighted heavily in ranking. Match tags the bundle already uses rather than inventing
+   near-synonyms. Where the knowledge has a literal symptom — an exact error message, an
+   exit code, a failing command — quote it in the body rather than paraphrasing it.
+
+   `okf-refine`'s `refining-standard.md` states the full criteria; they apply here too,
+   with the difference that ingest already knows the type and placement.
+
+4. **Preview before writing**
 
    ```bash
    okfctl --bundle <root> new <dir>/<id> --type "<Type>" \
@@ -70,7 +98,7 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
    `<producer>/<version>` when a tool generated it, `process:<id>` for an automation.
    Never invent one — ask if you do not know it.
 
-4. **Create it**
+5. **Create it**
 
    Re-run without `--dry-run`. The document is written as `status: draft` with a `generated`
    entry, and the creation is logged to the nearest `log.md` (SPEC §9).
@@ -78,7 +106,7 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
    New knowledge is a draft. It has not been verified by anyone yet, and saying otherwise
    in frontmatter is a false claim. Promotion is a separate, deliberate act — `okf-promote`.
 
-5. **Write the body**
+6. **Write the body**
 
    Edit the file directly for prose. This is the one thing the CLI does not do, and the
    only edit any workflow makes to a concept file by hand. Leave the frontmatter block
@@ -100,7 +128,7 @@ Frontmatter is created by `okfctl new`, never by hand. The body is yours to writ
    reference it with a footnote whose label matches the `id` (SPEC §5.1). `okfctl refs`
    holds that join together, and it only works if the labels match.
 
-6. **Verify**
+7. **Verify**
 
    ```bash
    okfctl --bundle <root> check

@@ -6,7 +6,7 @@ import { runPromote, runDeprecate } from './commands/transition.ts';
 import { runNew } from './commands/new.ts';
 import { runCapture } from './commands/capture.ts';
 import { runMove } from './commands/move.ts';
-import { runInit } from './commands/init.ts';
+import { runInit, DEFAULT_CAPTURE_EVERY } from './commands/init.ts';
 import { runUpdate } from './commands/update.ts';
 import { runHook } from './commands/hook.ts';
 import { runReview } from './commands/review.ts';
@@ -107,8 +107,8 @@ program
   .option('--register', 'record this bundle as the knowledge base captures default to')
   .option('--agent <host>', 'wire a coding agent to it; repeatable', (value: string, all: string[] = []) =>
     [...all, value], [] as string[])
-  .option('--capture-every <n>', 'hold a turn open every nth turn (default 1)', (value: string) =>
-    Number.parseInt(value, 10), 1)
+  .option('--capture-every <n>', `hold a turn open every nth turn (default ${DEFAULT_CAPTURE_EVERY})`, (value: string) =>
+    Number.parseInt(value, 10), DEFAULT_CAPTURE_EVERY)
   .option('--remove', 'with --agent, take back exactly what was installed')
   .option('-n, --dry-run', 'list every path it would create or edit without writing')
   .action(function (this: Command, dir: string | undefined, options) {
@@ -177,6 +177,7 @@ program
   .option('--to <dir>', 'target directory instead of the drafts area')
   .option('--id <slug>', 'a chosen id instead of one derived from the title')
   .option('--extend <id>', 'update an existing drafts-area entry in place instead of creating a new one')
+  .option('--append', 'with --extend, add the body to what is there instead of replacing the file')
   .option('--consume', 'remove the named sources after a successful write (refused if a source is outside the dumps area)')
   .option('--no-log', 'skip the log.md entry')
   .option('-n, --dry-run', 'show what would be written (and consumed) without writing it')

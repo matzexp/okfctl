@@ -500,3 +500,70 @@ test('refine with no sources and no --list is refused', () => {
   const root = sandbox();
   assert.equal(quiet(() => runRefine([], { ...base, bundle: root })), 1);
 });
+
+test('--append adds to the existing body instead of replacing it', () => {
+  const root = sandbox();
+  const file = join(root, 'drafts/timeout-mitigation.md');
+  const priorBody = readFileSync(file, 'utf8').split('\n---\n')[1];
+
+  const code = quiet(() => runRefine(['dumps/retry-budget'], {
+    bundle: root,
+    extend: 'drafts/timeout-mitigation',
+    append: true,
+    by: BY,
+    body: 'A follow-up finding about retry budgets.',
+  }));
+  assert.equal(code, 0);
+
+  const after = readFileSync(file, 'utf8');
+  assert.match(after, /Set the per-route timeout explicitly/, 'prior content survives');
+  assert.match(after, /A follow-up finding about retry budgets\./, 'the new content is there');
+  assert.ok(after.includes(priorBody.trim()), 'the prior body is present verbatim');
+});
+
+test('--append still merges sources and refreshes provenance', () => {
+  const root = sandbox();
+  quiet(() => runRefine(['dumps/retry-budget'], {
+    bundle: root, extend: 'drafts/timeout-mitigation', append: true, by: BY, body: 'More.',
+  }));
+  const raw = readFileSync(join(root, 'drafts/timeout-mitigation.md'), 'utf8');
+  assert.match(raw, /resource: dumps\/gateway-timeout/, 'the prior citation is kept');
+  assert.match(raw, /resource: dumps\/retry-budget/, 'the new source is cited');
+});
+
+test('--append is refused on a fresh entry, which has nothing to append to', () => {
+  const root = sandbox();
+  const code = quiet(() => runRefine(['dumps/gateway-timeout'], { ...base, bundle: root, append: true }));
+  assert.equal(code, 1);
+});
+
+test('a replacing --extend that shrinks the entry warns, and still writes', () => {
+  const root = sandbox();
+  const written: string[] = [];
+  const log = console.log;
+  console.log = (...args: unknown[]) => void written.push(args.join(' '));
+  let code: number;
+  try {
+    code = runRefine(['dumps/retry-budget'], {
+      bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'A deliberate shorter rewrite.',
+    });
+  } finally {
+    console.log = log;
+  }
+
+  assert.equal(code, 0, 'a shorter rewrite is legitimate and is not refused');
+  assert.match(written.join('\n'), /fewer bytes of body/, 'but the drop is named rather than silent');
+  assert.match(readFileSync(join(root, 'drafts/timeout-mitigation.md'), 'utf8'), /deliberate shorter rewrite/);
+});
+
+test('a longer replacing --extend needs no flag at all', () => {
+  const root = sandbox();
+  const code = quiet(() => runRefine(['dumps/retry-budget'], {
+    bundle: root,
+    extend: 'drafts/timeout-mitigation',
+    by: BY,
+    body: 'Set the per-route timeout explicitly rather than relying on the listener default. '
+      + 'And the retry budget is shared across the service, so a per-route retry multiplies.',
+  }));
+  assert.equal(code, 0);
+});

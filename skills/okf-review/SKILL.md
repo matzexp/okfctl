@@ -63,6 +63,17 @@ reader relies on.
    command that will record it, and the horizon for each confirmation. Confirm, then run
    them.
 
+   `review` takes several concepts at once, so a batch that shares one outcome and one
+   horizon is a single call:
+
+   ```bash
+   okfctl --bundle <root> review <a> <b> <c> --confirm --by <actor> --stale-in 90d
+   ```
+
+   A failure on one concept does not abandon the rest; the closing line names what failed.
+   Concepts with *different* findings still go in separate calls — the outcome is the whole
+   point of the command, and batching across outcomes would hide it.
+
    `--by` is a claim about who did the reviewing (SPEC §7) and is required for
    `--confirm`. If you checked the sources yourself, the actor is the agent identity, not
    a `human:` id — `human:` raises the concept to the highest trust tier and must mean a
@@ -109,6 +120,12 @@ reader relies on.
    ```bash
    okfctl move drafts/<id> <dir>/<id> --by human:<you> --reason "<why here>"
    ```
+
+   After relocating, check that something points at the new concept:
+   `okfctl status --orphan` lists placed concepts nothing links to, and
+   `okfctl related <id>` shows where this one should attach. A concept filed into the
+   corpus with no inbound link is findable by search and invisible to anyone reading their
+   way through the bundle — link it from the concepts a reader would arrive from.
 
    `move` carries the inbound links, both indexes and the log with it. Relocation is **not**
    promotion: the concept is still a draft, and `okf-promote` is still the act that says

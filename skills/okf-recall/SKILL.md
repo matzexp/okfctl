@@ -40,23 +40,57 @@ known. It never writes.
    Try more than one query if the first turns up nothing — a different phrasing, a
    component name instead of a symptom, or vice versa.
 
-3. **Read each result's area and trust tier before acting on it**
+   Useful narrowing, once a first search shows what is there:
+
+   ```bash
+   okfctl search "<query>" --snippet             # why each result matched, without opening it
+   okfctl search "<query>" --area corpus         # skip the unreviewed holding areas
+   okfctl search "<query>" --tier human-reviewed # only what a person signed
+   okfctl search "<query>" --type Runbook --tag networking
+   ```
+
+   `--snippet` is worth reaching for by default: it prints the matching line under each
+   result, so triage costs one search instead of one search plus a read of every candidate.
+
+3. **Follow the links out of a good hit**
+
+   ```bash
+   okfctl related <concept>
+   ```
+
+   A single relevant concept is usually the doorway to the two or three that complete the
+   picture — what it links to, what links back, what shares its tags. Search finds a
+   document; `related` finds the neighbourhood, which is where the rest of the answer
+   usually is. Skip this when the first hit fully settles the question.
+
+4. **Read each result's area and trust tier before acting on it**
 
    Every hit carries an area (`dumps`, `drafts`, or `corpus`) and a trust tier
    (`unverified`, `machine-confirmed`, `human-reviewed`). They are not interchangeable:
 
    - **`corpus` + `status: stable` + `trust: human-reviewed`** is citable as established
      fact. Reference it directly.
+   - **`corpus` + `machine-confirmed`** is usable, with the verifier named. An agent ran
+     `okfctl review --confirm` against this concept's `sources[]` and found it still
+     accurate — a real check, recorded, just not one a person signed. Use it, and say
+     where the confidence comes from: "verified by `<actor>` against `<source>` on
+     `<date>`, not human-reviewed." Do not silently round it up to established fact, and
+     do not round it down to a lead either — an agent's recorded verification is the one
+     form of checking that keeps pace with how fast knowledge arrives, and treating it as
+     worthless is what leaves a bundle with nothing citable in it.
    - **Anything in `dumps` or `drafts`, or `corpus` at `unverified`/`draft`** is a lead,
      not a fact. It is worth reading and worth following up on, but present it as
      unverified if you surface it to the user or act on it — "the bundle has an unreviewed
      note suggesting X" is honest; treating it as settled is not.
 
+   Read `okfctl search --format json` when you need these fields exactly; the table output
+   carries the same two in brackets after each result.
+
    This mirrors why `okf-refine` never claims a dump's findings as its own first-hand
    work (SPEC §7 provenance): reading someone else's unverified claim and repeating it as
    fact would misrepresent how sure the bundle actually is.
 
-4. **Act on what you found — or say nothing turned up**
+5. **Act on what you found — or say nothing turned up**
 
    If a result answers the question, use it and say where it came from. If nothing
    relevant turns up, say so in one line and proceed with the investigation normally —
@@ -66,7 +100,8 @@ known. It never writes.
 - Recall never writes. If a search turns up a gap worth filling, that is a separate act —
   `okf-capture`, `okf-refine`, or `okf-ingest`, run explicitly, not automatically from here.
 - Never present an unreviewed or unverified result with the same confidence as a
-  human-reviewed, stable one.
+  human-reviewed, stable one. `machine-confirmed` sits between the two and is reported as
+  what it is: checked by an agent against its sources, on a date, not signed by a person.
 - `.okf/policy/` is not read by this workflow — none of the three policy files scope how
   search results should be interpreted; that judgment is generic to OKF's trust-tier
   model, not a bundle-specific convention.

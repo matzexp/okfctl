@@ -23,6 +23,15 @@ export interface StatusOptions {
   json?: boolean;
 }
 
+/**
+ * How long an entry may sit in a holding area before the inbox line says so.
+ * Not a lifecycle state and not stored anywhere — an entry nobody has refined in
+ * this long is not usually one more cycle away from being refined, it is one
+ * nobody is going to refine, and that is a decision worth surfacing rather than
+ * a number worth growing.
+ */
+export const INBOX_NEGLECTED_DAYS = 30;
+
 interface Row extends Health {
   id: string;
   title: string;
@@ -174,9 +183,26 @@ function printInbox(rows: Row[], key: 'inDumps' | 'inDrafts', dir: string, today
     : `oldest ${Math.floor((today.getTime() - oldest) / 86_400_000)}d`;
 
   const verb = key === 'inDumps' ? 'captured' : 'refined';
+
+  // An inbox nobody works does not stay neutral: it dilutes every search and
+  // launders "we wrote it down" into "we know it". The count and the age of the
+  // oldest entry are always printed; past a point, so is the fact that entries
+  // are sitting long enough to be worth a decision — refine them, or drop them.
+  const stalest = oldest === null
+    ? 0
+    : Math.floor((today.getTime() - oldest) / 86_400_000);
+  const neglected = members.filter((row) => {
+    const at = row.captured ? Date.parse(row.captured) : Number.NaN;
+    return !Number.isNaN(at) && (today.getTime() - at) / 86_400_000 >= INBOX_NEGLECTED_DAYS;
+  }).length;
+
+  const line = `${dir}/ ${members.length} ${verb}   ${dim(age)}`;
+  const note = neglected > 0 && stalest >= INBOX_NEGLECTED_DAYS
+    ? `   ${yellow(`${neglected} over ${INBOX_NEGLECTED_DAYS}d`)}`
+    : '';
   console.log(table([[
     dim(key === 'inDumps' ? 'Dumps' : 'Drafts'),
-    `${dir}/ ${members.length} ${verb}   ${dim(age)}`,
+    `${line}${note}`,
   ]]));
 }
 

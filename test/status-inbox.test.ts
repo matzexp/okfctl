@@ -4,7 +4,7 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runStatus } from '../src/commands/status.ts';
+import { runStatus, INBOX_NEGLECTED_DAYS } from '../src/commands/status.ts';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/bundle', import.meta.url));
 
@@ -209,4 +209,34 @@ test('--orphan filters to exactly those concepts', () => {
 
   const { out } = capturedJson(() => runStatus({ bundle: root, orphan: true, json: true }));
   assert.deepEqual(out.concepts.map((row: any) => row.id), ['a']);
+});
+
+test('an inbox entry sitting past the neglect horizon is named on the inbox line', () => {
+  const root = mkdtempSync(join(tmpdir(), 'okf-neglect-'));
+  writeFileSync(join(root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Neglect\n');
+  mkdirSync(join(root, 'dumps'));
+
+  const old = new Date(Date.now() - (INBOX_NEGLECTED_DAYS + 5) * 86_400_000).toISOString();
+  const fresh = new Date().toISOString();
+  const dump = (id: string, at: string) => writeFileSync(join(root, `dumps/${id}.md`), [
+    '---', 'type: Note', `title: ${id}`, `generated: { by: agent/1.0, at: ${at} }`, '---', '', 'x',
+  ].join('\n'));
+  dump('ancient', old);
+  dump('recent', fresh);
+
+  const { out } = captured(() => runStatus({ bundle: root }));
+  assert.match(out, new RegExp(`1 over ${INBOX_NEGLECTED_DAYS}d`), 'only the neglected one is counted');
+});
+
+test('a young inbox says nothing about neglect', () => {
+  const root = mkdtempSync(join(tmpdir(), 'okf-young-'));
+  writeFileSync(join(root, 'index.md'), '---\nokf_version: "0.2"\n---\n\n# Young\n');
+  mkdirSync(join(root, 'dumps'));
+  writeFileSync(join(root, 'dumps/new.md'), [
+    '---', 'type: Note', 'title: new', `generated: { by: agent/1.0, at: ${new Date().toISOString()} }`,
+    '---', '', 'x',
+  ].join('\n'));
+
+  const { out } = captured(() => runStatus({ bundle: root }));
+  assert.doesNotMatch(out, /over \d+d/);
 });

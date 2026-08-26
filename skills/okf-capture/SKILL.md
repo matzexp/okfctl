@@ -53,25 +53,24 @@ placement you already know. This skill is for knowledge you have and cannot yet 
 4. **Write the summary, not the transcript**
 
    A reader who was not in the session must be able to act on it without asking a follow-up
-   question or re-deriving anything you already worked out. State what is true and why it
-   is true; leave out the conversation that got there — not the back-and-forth, not what was
-   tried before the working answer, not the tool calls.
+   question or re-deriving anything you already worked out. State what is true and why;
+   leave out the conversation that got there.
 
-   Be specific rather than general. Name the exact component, version, file, flag, error
-   message, or command involved — "the CSI driver" is weaker than "truenas-csi-iscsi v1.0.2";
-   "the audit volume dropped a lot" is weaker than "120,116 records fell to 11,849 over
-   matched 10-minute windows." A future session cannot act on a vague claim, only verify or
-   apply a precise one. Where the finding rests on something checkable — a command, a query,
-   a log window, a file — name it exactly enough that someone could rerun it.
+   Three things carry most of the value:
 
-   Include the scope and the caveats, not just the headline: what was and was not verified,
-   what remains unexplained, what would break this conclusion if it changed (a version
-   bump, a config default, an environment difference). A summary that omits its own limits
-   reads as more certain than it is, and the next reader inherits that false confidence.
+   - **Be specific.** Name the exact component, version, file, flag, error message, or
+     command — "truenas-csi-iscsi v1.0.2", not "the CSI driver"; "120,116 records fell to
+     11,849 over matched 10-minute windows", not "the volume dropped a lot". A future
+     session can verify or apply a precise claim and can do neither with a vague one.
+   - **Quote the literal symptom**, when there is one: the error text, the exit code, the
+     failing command. This is what the next search will be typed with, so paraphrasing it
+     is what makes the finding unfindable.
+   - **Include the caveats.** What was and was not verified, what remains unexplained, what
+     would break the conclusion if it changed. A summary that omits its own limits reads as
+     more certain than it is, and the next reader inherits that false confidence.
 
-   Length follows completeness, not the reverse — do not pad, but do not trim a caveat or a
-   concrete number to hit a target length. A dump nobody can read is not knowledge, and
-   neither is one that reads clean but leaves out the detail the next session needed.
+   Length follows completeness — do not pad, and do not trim a caveat or a concrete number
+   to hit a target length.
 
 5. **Capture it**
 
@@ -80,25 +79,20 @@ placement you already know. This skill is for knowledge you have and cannot yet 
      --session "<your session id>" --stdin
    ```
 
-   The actor is a provenance claim (SPEC §7). Record yourself — the agent that wrote the
-   summary — as `<producer>/<version>`. Never a `human:` id: the human said the thing, but
+   The actor is a provenance claim (SPEC §7): record yourself, the agent that wrote the
+   summary, as `<producer>/<version>`. Never a `human:` id — the human said the thing, but
    you wrote the summary, and `human:` is what raises a concept to the highest trust tier.
 
-   Pass `--session` when your host reports a session id. It groups a conversation's captures
-   under one filename prefix and is recorded as provenance, so "which session produced this"
-   stays answerable after a human renames the concept and files it. Omit it when you do not
-   know it — the id then says `adhoc`, which is honest. Never pass something else in its
-   place.
+   Pass `--session` when your host reports a session id; it groups a conversation's
+   captures and stays answerable after a human renames the concept. Omit it when you do not
+   know it — the id then says `adhoc`, which is honest — and never pass anything else in
+   its place.
 
-   **Do not pass `--id`.** The id is generated as `<date>-<session>-<n>`, and that is the
-   expected case: it cannot collide, so a second capture never destroys the first, and the
-   title is what carries meaning until a human files the concept under a real name. Reach
-   for `--id` only when the user has told you what to call it.
-
-   Leave `--type` alone unless you are certain. The provisional type is honest about what
-   it is, and the dumps area exists precisely so a human (or `okf-refine`) decides type and
-   placement later. Use `--to` only when placement is genuinely already settled — at which
-   point `okf-ingest` is the better workflow.
+   Leave `--id` and `--type` alone. The generated id cannot collide, so a second capture
+   never destroys the first, and the provisional type is honest about a placement nobody
+   has decided yet — which is what the dumps area is for. Reach for `--id` only when the
+   user has named it, and `--to` only when placement is genuinely settled, at which point
+   `okf-ingest` is the better workflow.
 
    `--dry-run` shows the resolved path and frontmatter first.
 

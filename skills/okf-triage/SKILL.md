@@ -65,6 +65,13 @@ to one of the writing workflows, and the user chooses whether to run them.
    | conformance **errors** | Unparseable frontmatter, or a missing `type` | Fix the file directly; nothing else can run cleanly until then |
    | broken refs | A footnote or link that no longer resolves | Fix the file directly |
    | `deprecated` but still linked | Live concepts pointing at retired knowledge | Rewrite the referring concepts |
+   | `orphans` | Placed concepts nothing in the bundle links to: findable by search, outside the structure a reader navigates by | `okfctl status --orphan` to list them; `okfctl related <id>` to find where each should attach. Not urgent, and never reported as rot |
+   | an inbox entry `over 30d` | Sitting long enough that nobody is going to refine it in the normal course | Decide rather than let it age: refine it, or drop it. `okfctl status` names the count on the inbox line |
+
+   Report the **reach** line too, when the bundle has placed concepts: how many are
+   orphans. It is a count, not an alarm — an orphan is not rotting — but a corpus where
+   most concepts are orphans is one that is searchable and not navigable, and that is
+   worth naming once rather than never.
 
    Report both inboxes as their own lines: how many entries the dumps area and the drafts
    area each hold, and the age of the oldest in each. `okfctl status` prints both,
@@ -76,7 +83,21 @@ to one of the writing workflows, and the user chooses whether to run them.
    Name concepts by id. Give counts, not a wall of rows — if a group has more than about
    ten members, say how many and list the ones that matter.
 
-5. **Recommend an order, and stop**
+5. **Check the derived files, if the bundle keeps them**
+
+   `index.md` and `catalog.md` are generated from frontmatter, so they drift whenever
+   concepts change and nobody regenerates them:
+
+   ```bash
+   okfctl --bundle <root> index --check
+   okfctl --bundle <root> catalog --check   # only if the bundle keeps a catalog.md
+   ```
+
+   Drift here is not a defect in the knowledge — it is a derived file that is out of date,
+   fixed by `okfctl index` / `okfctl catalog --write`. Report it as housekeeping, and say
+   which command fixes it. Do not run either from this workflow; both write.
+
+6. **Recommend an order, and stop**
 
    Suggest one or two next actions with the command or workflow that performs them. Do not
    run them. If the user says "go ahead", hand off to the named workflow.
@@ -88,5 +109,7 @@ to one of the writing workflows, and the user chooses whether to run them.
 - Never call a warning an error, or a conformant bundle broken.
 - Never assert a concept is accurate or inaccurate — this workflow reads frontmatter, not
   content. Judging accuracy is `okf-review`'s job.
+- Never report orphans as a defect. Nothing links to them yet; that is a gap in the link
+  structure, not a claim that the knowledge is wrong or stale.
 - Report what `okfctl` reports. Do not compute freshness or trust by reading frontmatter
   yourself; the derived signals have precise definitions and the CLI is where they live.
