@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { findConcept, loadBundle } from '../core/bundle.ts';
-import { conceptTitle, createConcept, serializeConcept, type Concept } from '../core/concept.ts';
+import { conceptTitle, createConcept, serializeConcept, setField, type Concept } from '../core/concept.ts';
 import { resolveDraftsDir, inDrafts } from '../core/drafts.ts';
 import { resolveDumpsDir, inDumps } from '../core/dumps.ts';
 import { slugify } from './capture.ts';
@@ -195,27 +195,50 @@ export function runRefine(sources: string[], options: RefineOptions): number {
     citations = newCitations;
   }
 
-  const description = options.description?.trim()
-    || (target ? (target.data.description as string | undefined) : undefined);
-  const tags = options.tags?.length
-    ? options.tags
-    : (target ? (target.data.tags as string[] | undefined) : undefined);
+  const description = options.description?.trim() || undefined;
+  const tags = options.tags?.length ? options.tags : undefined;
 
   const at = new Date().toISOString();
-  const concept = createConcept(
-    file,
-    id,
-    [
-      ['type', type],
-      ['title', title],
-      ['description', description],
-      ['tags', tags],
-      ['status', 'draft'],
-      ['generated', { by, at }],
-      ['sources', citations],
-    ],
-    body,
-  );
+
+  // Extending edits the entry's own document rather than building a replacement
+  // from a fixed key list: SPEC §4.1 asks consumers to preserve unknown
+  // producer-defined keys when round-tripping, and an extend is a round-trip, so
+  // key order, comments, and every field extend does not own survive it. A
+  // preserved `verified` block combined with the refreshed `generated.at` is
+  // exactly the drift `check` already warns about — the trust tier is reported as
+  // no longer earned instead of being silently erased.
+  let concept: Concept;
+  if (target) {
+    if (!target.doc) {
+      console.error(red(`"${target.id}" has no readable frontmatter to extend`));
+      console.error(dim(target.parseError ?? 'a concept without a frontmatter block cannot be edited in place'));
+      return 1;
+    }
+    concept = target;
+    setField(concept, 'type', type);
+    setField(concept, 'title', title);
+    if (description !== undefined) setField(concept, 'description', description);
+    if (tags !== undefined) setField(concept, 'tags', tags);
+    setField(concept, 'status', 'draft');
+    setField(concept, 'generated', { by, at });
+    setField(concept, 'sources', citations);
+    concept.body = body;
+  } else {
+    concept = createConcept(
+      file,
+      id,
+      [
+        ['type', type],
+        ['title', title],
+        ['description', description],
+        ['tags', tags],
+        ['status', 'draft'],
+        ['generated', { by, at }],
+        ['sources', citations],
+      ],
+      body,
+    );
+  }
 
   const sourceIds = resolved.map((source) => source.id);
   const entry = target
@@ -241,15 +264,20 @@ export function runRefine(sources: string[], options: RefineOptions): number {
     return 0;
   }
 
-  const written: string[] = [];
-  const removed: { file: string; contents: string }[] = [];
+  // A fresh refine creates its file, so undoing it means removing it; an extend
+  // overwrites a file that was already there, so undoing it means putting the
+  // prior contents back. Deleting on rollback would destroy the very draft the
+  // caller was extending.
+  const created: string[] = [];
+  const restore: { file: string; contents: string }[] = [];
   try {
+    if (target) restore.push({ file, contents: readFileSync(file, 'utf8') });
     writeFileSync(file, serializeConcept(concept));
-    written.push(file);
+    if (!target) created.push(file);
 
     if (consume) {
       for (const source of resolved) {
-        removed.push({ file: source.file, contents: readFileSync(source.file, 'utf8') });
+        restore.push({ file: source.file, contents: readFileSync(source.file, 'utf8') });
         rmSync(source.file);
       }
     }
@@ -262,7 +290,7 @@ export function runRefine(sources: string[], options: RefineOptions): number {
       regenerateIndexes(loadBundle(bundle.root), dirs);
     }
   } catch (error) {
-    rollback(written, removed);
+    rollback(created, restore);
     console.error(red(`refine failed: ${(error as Error).message}`));
     console.error(dim('the bundle was restored to its previous state'));
     return 1;
@@ -272,15 +300,15 @@ export function runRefine(sources: string[], options: RefineOptions): number {
   return 0;
 }
 
-function rollback(written: string[], removed: { file: string; contents: string }[]): void {
-  for (const file of written) {
+function rollback(created: string[], restore: { file: string; contents: string }[]): void {
+  for (const file of created) {
     try {
       rmSync(file, { force: true });
     } catch {
       // Best effort: report below is what the caller sees regardless.
     }
   }
-  for (const entry of removed) {
+  for (const entry of restore) {
     try {
       writeFileSync(entry.file, entry.contents);
     } catch {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -232,6 +232,87 @@ test('--extend accepts an explicit --type/--title override', () => {
   const raw = readFileSync(join(root, 'drafts/timeout-mitigation.md'), 'utf8');
   assert.match(raw, /^type: Decision$/m);
   assert.match(raw, /^title: Retyped title$/m);
+});
+
+test('a failed --extend restores the draft rather than deleting it', () => {
+  const root = sandbox();
+  const file = join(root, 'drafts/timeout-mitigation.md');
+  const before = readFileSync(file, 'utf8');
+
+  // The log append is the step after the concept write; a directory where the
+  // log file belongs fails it deterministically, whatever the uid.
+  rmSync(join(root, 'log.md'));
+  mkdirSync(join(root, 'log.md'));
+
+  const code = quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'This must not survive.' },
+  ));
+
+  assert.equal(code, 1);
+  assert.equal(existsSync(file), true, 'the extended draft still exists');
+  assert.equal(readFileSync(file, 'utf8'), before, 'its prior contents are back, byte for byte');
+});
+
+test('a failed fresh refine still removes the file it created', () => {
+  const root = sandbox();
+  rmSync(join(root, 'log.md'));
+  mkdirSync(join(root, 'log.md'));
+
+  const code = quiet(() => runRefine(['dumps/gateway-timeout'], { ...base, bundle: root }));
+
+  assert.equal(code, 1);
+  assert.equal(existsSync(join(root, 'drafts/gateway-timeout-retry-finding.md')), false);
+});
+
+test('--extend preserves frontmatter keys, comments, and key order it does not own', () => {
+  const root = sandbox();
+  const file = join(root, 'drafts/timeout-mitigation.md');
+  writeFileSync(file, readFileSync(file, 'utf8')
+    .replace('status: draft', 'owner: platform-team\n# why this horizon: quarterly review cycle\nstale_after: 2026-12-01\nstatus: draft'));
+
+  const code = quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'Extended body.' },
+  ));
+  assert.equal(code, 0);
+
+  const raw = readFileSync(file, 'utf8');
+  assert.match(raw, /^owner: platform-team$/m, 'an unknown producer-defined key survives (SPEC §4.1)');
+  assert.match(raw, /^stale_after: 2026-12-01$/m);
+  assert.match(raw, /^# why this horizon: quarterly review cycle$/m, 'comments survive');
+  assert.ok(raw.indexOf('owner:') < raw.indexOf('status:'), 'key order is preserved');
+});
+
+test('--extend keeps a verified block, leaving the drift to be reported rather than erased', () => {
+  const root = sandbox();
+  const file = join(root, 'drafts/timeout-mitigation.md');
+  writeFileSync(file, readFileSync(file, 'utf8')
+    .replace('status: draft', 'status: stable\nverified: [{ by: human:matze, at: 2026-08-22T10:00:00Z }]'));
+
+  const code = quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'Extended body.' },
+  ));
+  assert.equal(code, 0);
+
+  const raw = readFileSync(file, 'utf8');
+  assert.match(raw, /by: human:matze/, 'the prior verification is not silently dropped');
+  assert.match(raw, /^status: draft$/m, 'but the entry is a draft again: the content it attested to has changed');
+});
+
+test('--extend leaves description and tags alone when neither is passed', () => {
+  const root = sandbox();
+  const file = join(root, 'drafts/timeout-mitigation.md');
+  const before = readFileSync(file, 'utf8');
+  assert.match(before, /^description: Refined from a dumps-area capture/m);
+
+  const code = quiet(() => runRefine(
+    ['dumps/retry-budget'],
+    { bundle: root, extend: 'drafts/timeout-mitigation', by: BY, body: 'Extended body.' },
+  ));
+  assert.equal(code, 0);
+  assert.match(readFileSync(file, 'utf8'), /^description: Refined from a dumps-area capture/m);
 });
 
 test('--extend refuses a corpus target, naming its actual area', () => {

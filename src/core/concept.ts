@@ -55,14 +55,7 @@ export function createConcept(
   const doc = new Document({});
   for (const [key, value] of frontmatter) {
     if (value === undefined || value === null) continue;
-    const node: unknown = doc.createNode(value);
-    // Match the bundle's conventions: `{ by, at }` mappings and `[a, b]`
-    // sequences of scalars stay on one line; anything nested does not.
-    if (isMap(node)) node.flow = true;
-    else if (isSeq(node) && node.items.every((item) => !isMap(item) && !isSeq(item))) {
-      node.flow = true;
-    }
-    doc.set(key, node);
+    doc.set(key, conventionalNode(doc, value));
   }
   return { file, id, doc: doc as Document.Parsed, data: (doc.toJS() ?? {}) as Record<string, unknown>, body, parseError: null };
 }
@@ -101,10 +94,28 @@ export function conceptTitle(concept: Concept): string {
   return concept.id.split('/').pop() ?? concept.id;
 }
 
-/** Set a top-level frontmatter key, preserving surrounding structure. */
+/**
+ * Match the bundle's conventions: `{ by, at }` mappings and `[a, b]` sequences of
+ * scalars stay on one line; anything nested does not.
+ */
+function conventionalNode(doc: Document, value: unknown): unknown {
+  const node: unknown = doc.createNode(value);
+  if (isMap(node)) node.flow = true;
+  else if (isSeq(node) && node.items.every((item) => !isMap(item) && !isSeq(item))) {
+    node.flow = true;
+  }
+  return node;
+}
+
+/**
+ * Set a top-level frontmatter key, preserving surrounding structure — an existing
+ * key keeps its position, and every key this one does not name is left untouched.
+ * The value is rendered with the same conventions `createConcept` uses, so a field
+ * written here and the same field written on creation look identical on disk.
+ */
 export function setField(concept: Concept, key: string, value: unknown): void {
   if (!concept.doc) throw new Error(`${concept.id}: no frontmatter to edit`);
-  concept.doc.set(key, value);
+  concept.doc.set(key, conventionalNode(concept.doc, value));
   concept.data[key] = value;
 }
 
